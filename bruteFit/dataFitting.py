@@ -244,7 +244,7 @@ def filter_peaks_deltax(x, peaks):
         prev_peak = peak
     return np.array(peak_list)
 
-
+#TODO: subsets of length > k
 def brute_force_models(x, y):
     model_list = [
         gaussianModels.model_stable_gaussian_sigma,
