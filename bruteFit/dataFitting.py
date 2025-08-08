@@ -5,6 +5,8 @@ from lmfit.model import ModelResult, Model
 import matplotlib.pyplot as plt
 import numpy as np
 
+#TODO: Docs
+
 #Smoothing
 WINDOW_LENGTH = 5  # Window length for Savitzky-Golay smoothing (datapoints?) (relate to bandwidth?)
 POLYORDER = 4  # Polynomial order for Savitzky-Golay smoothing
@@ -28,8 +30,7 @@ AMPLITUDE_SCALE_LIMIT = 3.0
 #basic
 SMALL_FWHM_FACTOR = 2.355  # Conversion factor from FWHM to sigma
 class BfResult:
-    def __init__(self, datax, datay, dataz,
-                 redchi_threshold=None, residual_rms_threshold=None):
+    def __init__(self, datax, datay, dataz, redchi_threshold=None, residual_rms_threshold=None):
         """
         Initialize the bfResult container with optional filter thresholds.
 
@@ -126,9 +127,8 @@ class BfResult:
         ax.set_ylabel("Z")
 
         # Compute and display residual RMS in the top-left
-        residual_rms = np.sqrt(np.mean(result.residual ** 2))
-        ax.text(0.02, 0.95, f"Residual RMS: {residual_rms:.3g}",
-                transform=ax.transAxes, fontsize=12, va='top', ha='left')
+        residual_rms = self._residual_rms(result)
+        ax.text(0.02, 0.95, f"Residual RMS: {residual_rms:.3g}",transform=ax.transAxes, fontsize=12, va='top', ha='left')
 
         ax.legend()
         plt.tight_layout()
@@ -141,13 +141,6 @@ def get_anymax_factor(ratio):
     else:
         return np.sqrt(8 * np.log(1 / ratio))
 
-
-#Params: numpy.ndarray x - x values
-#        numpy.ndarray y - y values
-#        int peak_index - center of peak for the gaussian
-#        float ratio - full width any max ratio eg. 1/2 1/3
-#Returns: float - An estimation for the std deviation of the gaussian
-#Does: Function to estimate sigmas of gaussians corresponding to the peak_index
 def estimate_sigma(x, y, peak_index, ratio):
     some_max = y[peak_index] * ratio
     left_candidates = np.where(y[:peak_index] < some_max)[0]
@@ -166,12 +159,6 @@ def estimate_sigma(x, y, peak_index, ratio):
     #cap sigma
     return min(sigma, MAX_SIGMA)
 
-
-#Params: np array x - x values
-#        np array y - y values
-#        int peak_index - center of peak for the gaussian
-#Returns: float - an average of different full width any max estimations
-#Does: Calculates an average of different full width any max estimations with a range defined in constants.py
 def estimate_average_sigma(x, y, peak_index):
     total = 0
     count = 0
@@ -186,7 +173,7 @@ def filter_by_max_peak_height(y, peaks, peak_info):
     peaks_rel = abs(peak_prominences(y, peaks)[0]) > -MIN_PROMINENCE
     return peaks[peaks_abs & peaks_rel]
 
-
+#TODO: More initial guesses or maybe guess on mcd data itself
 def generate_initial_guesses(x, y, num_gaussians):
     # Smooth the noisy data
     y_smoothed = savgol_filter(y, window_length=WINDOW_LENGTH, polyorder=POLYORDER)
