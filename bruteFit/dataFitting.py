@@ -1,7 +1,4 @@
-from tokenize import String
-
 from scipy.signal import find_peaks, savgol_filter, peak_prominences
-
 from . import gaussianModels
 import itertools
 from lmfit.model import ModelResult, Model
@@ -19,14 +16,7 @@ DISTANCE = 5  # The minimum distance, in number of samples, between peaks. - Thi
 
 # Fitting
 MAX_BASIS_GAUSSIANS = 10  # Maximum number of basis Gaussians for fitting
-NUM_GUESSES = 1  # Number of guesses for each basis fitting - created this with the idea that I would want to allow for some random walk over guess space ? For now keep to 1.
-VARY_CENTERS = False
-DELTA_BIC_THRESHOLD = 0  # Threshold for detecting when BIC levels out - depends on the number of points. Need to normalize somehow. Set to zero to effectively bypass.
-THRESHOLD_PERCENT = 0.1  # Threshold under which a basis curve is not contributing to the fit, and therefore is removed. This should probably be maximally 100/N, N is the number of (reasonable) basis curves. In experience, the ones that don't contribute tend to be very small say less than 1%
-RSS_THRESHOLD_PERCENT = 5
 PERCENTAGE_RANGE = 10  # The percentage by which the initial parameters will be allowed to relax on re-fitting after removing poor curves.
-PERCENT_RANGE_X = 1
-TOLERANCE_X = 2  # how close centers can be as a percent of the overall x values and be considered the same.
 MAX_SIGMA = 60000  #max sigma for gaussians
 MIN_PEAK_X_DISTANCE = 0
 ESTIMATE_SIGMA_ITERATIONS_END = 10  #START/END to END-1/END
@@ -65,7 +55,7 @@ class BfResult:
         """Compute the RMS of residuals for a fit."""
         return np.sqrt(np.mean(result.residual ** 2))
 
-    def filter_results(self):
+    def _filter_results(self):
         """
         Filter results based on thresholds set at initialization.
         Returns a list of ModelResult objects that pass all thresholds.
@@ -85,7 +75,7 @@ class BfResult:
         Return the single best result based on a metric.
         Options: 'redchi', 'residual_rms'
         """
-        filtered = self.filter_results()
+        filtered = self._filter_results()
         if not filtered:
             return None
 
@@ -99,7 +89,7 @@ class BfResult:
         Return the top N best results based on a metric.
         Options: 'redchi', 'residual_rms'
         """
-        filtered = self.filter_results()
+        filtered = self._filter_results()
         if metric == 'residual_rms':
             return sorted(filtered, key=self._residual_rms)[:n]
         else:
@@ -115,10 +105,10 @@ class BfResult:
             return
 
         for i, r in enumerate(top, 1):
-            self.plot_components_visible(r,self.dataX,self.dataZ)
+            self._plot_components_visible(r, self.dataX, self.dataZ)
 
-    def plot_components_visible(self, result, x, z):
-        """Plot the original z-data and each individual model component (no scaling)."""
+    def _plot_components_visible(self, result, x, z):
+        """Plot the original z-data and each individual model component. """
         fig, ax = plt.subplots()
 
         # Plot the measured data
@@ -233,7 +223,7 @@ def generate_initial_guesses(x, y, num_gaussians):
     print(f'Initial Guess Peak Sigmas: {peak_sigmas}')
     print(f'Intial Guess Peak Amplitudes: {peak_amplitudes}')
 
-    # --- NEW: plot peak centers on the ORIGINAL y data ---
+    #plot peak centers
     try:
         y_at_centers = np.interp(peak_centers, x, y)  # y value at each center
         plt.figure()
@@ -326,6 +316,7 @@ def fit_models(mcd_df, percentage_range=PERCENTAGE_RANGE):
         mcd_df.rename(columns={'intensity_extinction': 'intensity'}, inplace=True)
 
     # Prepare the dataframe
+    #TODO: check if field is used correctly
     mcd_df['wavenumber'] = 1e7 / mcd_df['wavelength']
     mcd_df['scaled_absorption'] = mcd_df['intensity'] / (mcd_df['wavenumber'] * 1.315 * 326.6)
     mcd_df['scaled_MCD'] = mcd_df['R_signed'] / (mcd_df['wavenumber'] * 1.315 * 152.5)  # Is this even orientational averaging? I get reasonable values if I dont do the orientational averaging for MCD.
@@ -406,6 +397,7 @@ def fit_models(mcd_df, percentage_range=PERCENTAGE_RANGE):
             #plot_components_visible(res,x,z)
             results.add_result(res)
         except Exception:
+            print("Exception raised while fitting\n")
             pass
 
     return results
