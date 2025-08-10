@@ -3,7 +3,7 @@ import sys
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QScrollArea, QSizePolicy, QDialog, QDialogButtonBox
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QScrollArea, QSizePolicy, QDialog, QDialogButtonBox, QLabel
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
@@ -62,11 +62,7 @@ class MatplotlibGalleryWindow(QMainWindow):
         layout.addStretch(1)
         scroll.setWidget(container)
 
-def show_peak_centers_window(x, y_mcd, peak_centers, title="Peak Centers"):
-    """
-    Shows a PySide6 dialog with the plot and Yes/No buttons.
-    Returns True if user clicks Yes (continue), False if No.
-    """
+def show_peak_centers_window(x, y_mcd, tfit, peak_centers, title="Peak Centers"):
     # Compute y at each center
     y_at_centers = np.interp(peak_centers, x, y_mcd)
 
@@ -78,6 +74,11 @@ def show_peak_centers_window(x, y_mcd, peak_centers, title="Peak Centers"):
     ax.scatter(peak_centers, y_at_centers, s=36, zorder=3, label='peak centers')
     for cx in peak_centers:
         ax.axvline(cx, ls='--', lw=0.8, alpha=0.5)
+
+    # Add total fits int as overlay text on the axes
+    ax.text(0.02, 0.98, f"total fits = {int(tfit)}",
+            transform=ax.transAxes, va="top", ha="left",
+            bbox=dict(boxstyle="round", alpha=0.25))
 
     ax.set_xlabel('x')
     ax.set_ylabel('signal')

@@ -1,9 +1,9 @@
 import sys
-
 from PySide6.QtWidgets import QApplication
 from scipy.signal import find_peaks, savgol_filter, peak_prominences
 from . import gaussianModels
 from . import plotwindow
+from math import comb
 import itertools
 from lmfit.model import ModelResult, Model
 import matplotlib.pyplot as plt
@@ -279,7 +279,7 @@ def generate_initial_guesses_B(x, y_mcd, num_gaussians=MAX_BASIS_GAUSSIANS):
 
     return peak_amplitudes, peak_centers, peak_sigmas
 
-def guess_on_all_data(x, y_abs, y_mcd, merge_dx=MERGE_DX, max_gc=10):
+def guess_on_all_data(x, y_abs, y_mcd, merge_dx=MERGE_DX, max_gc=10, min_gc=0):
     # First, get guesses from absorption data
     amp_abs, ctr_abs, sig_abs = generate_initial_guesses_A(x, y_abs, num_gaussians=max_gc)
 
@@ -312,9 +312,12 @@ def guess_on_all_data(x, y_abs, y_mcd, merge_dx=MERGE_DX, max_gc=10):
 
     #start standalone qt window
     app = QApplication.instance() or QApplication(sys.argv)
+    pc_length = len(peak_centers)
+    #TODO: fix so no more -1 -- needs to be fixed in brute_force and fit_models
+    tfits = total_fits(pc_length, min_gc + 1, max_gc + 1)
 
     try:
-        continue_fit = show_peak_centers_window(x, y_mcd, peak_centers)
+        continue_fit = show_peak_centers_window(x, y_mcd, tfits, peak_centers)
     except Exception as e:
         print(f"Center plotting failed: {e}")
         sys.exit(1)
@@ -344,7 +347,8 @@ def filter_peaks_deltax(x, peaks):
         prev_peak = peak
     return np.array(peak_list)
 
-
+def total_fits(m, n, k):
+    return sum((2 ** i) * comb(m, i) for i in range(n, min(k, m+1)))
 def brute_force_models(x, y_abs, y_mcd, min_gc=0, max_gc=10):
     model_list = [
         gaussianModels.model_stable_gaussian_sigma,
@@ -352,7 +356,7 @@ def brute_force_models(x, y_abs, y_mcd, min_gc=0, max_gc=10):
     ]
 
     # Generate peak guesses
-    peak_amplitudes, peak_centers, peak_sigmas = guess_on_all_data(x, y_abs, y_mcd, max_gc=max_gc)
+    peak_amplitudes, peak_centers, peak_sigmas = guess_on_all_data(x, y_abs, y_mcd, max_gc=max_gc,min_gc=min_gc)
 
     # Bundle each peak's parameters into a tuple
     peaks = list(zip(peak_amplitudes, peak_centers, peak_sigmas))
