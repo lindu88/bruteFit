@@ -5,6 +5,7 @@ TINY = np.finfo(float).tiny
 SQRT_LOG2 = np.sqrt(np.log(2))
 S2PI = np.sqrt(2 * np.pi)
 
+#TODO: Check because I fed though AI to clean up. I was lazy
 def stable_gaussian_sigma(x, amplitude, center, sigma):
     """Numerically stable Gaussian (normalized to area=1), using sigma."""
     gamma = sigma * 2 * np.sqrt(2 * np.log(2))  # FWHM

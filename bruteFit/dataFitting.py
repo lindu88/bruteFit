@@ -1,34 +1,43 @@
+import sys
+
+from PySide6.QtWidgets import QApplication
 from scipy.signal import find_peaks, savgol_filter, peak_prominences
 from . import gaussianModels
+from . import plotwindow
 import itertools
 from lmfit.model import ModelResult, Model
 import matplotlib.pyplot as plt
 import numpy as np
 
-#TODO: Docs
+from .plotwindow import MatplotlibGalleryWindow, show_peak_centers_window
+
+#TODO: Docs and use pyside6 for parameters / records class
 
 #Smoothing
 WINDOW_LENGTH = 5  # Window length for Savitzky-Golay smoothing (datapoints?) (relate to bandwidth?)
 POLYORDER = 4  # Polynomial order for Savitzky-Golay smoothing
 
 #peak picking
-HEIGHT_THRESHOLD = 0.04  # Minimum height threshold for peak detection - should be greater than noise after smoothing. Trouble is that the negative side bands likely mean zero isn't at zero.
+HEIGHT_THRESHOLD = 0.015  # Minimum height threshold for peak detection - should be greater than noise after smoothing. Trouble is that the negative side bands likely mean zero isn't at zero.
 PROMINENCE_PERECENT = 0.04  # Prominence is here as a multiple of max height. What is (topographic) prominence? It is "the minimum height necessary to descend to get from the summit to any higher terrain", as it can be seen here
 DISTANCE = 5  # The minimum distance, in number of samples, between peaks. - This should be related to bandwidth for certain
 
 # Fitting
-MAX_BASIS_GAUSSIANS = 10  # Maximum number of basis Gaussians for fitting
+MERGE_DX = 500 #distance to merge centers between abs and mcd
+MAX_BASIS_GAUSSIANS = 5  # Maximum number of basis Gaussians for fitting
 PERCENTAGE_RANGE = 10  # The percentage by which the initial parameters will be allowed to relax on re-fitting after removing poor curves.
 MAX_SIGMA = 60000  #max sigma for gaussians
 MIN_PEAK_X_DISTANCE = 0
 ESTIMATE_SIGMA_ITERATIONS_END = 10  #START/END to END-1/END
 ESTIMATE_SIGMA_ITERATIONS_START = 4
-MIN_ABSOLUTE_PEAK_HEIGHT = 0.000000000000000001
+MIN_ABSOLUTE_PEAK_HEIGHT = 0.00000000000000001
 MIN_PROMINENCE = 0.000000000000000001  #min relative peak height
 AMPLITUDE_SCALE_LIMIT = 3.0
 
 #basic
 SMALL_FWHM_FACTOR = 2.355  # Conversion factor from FWHM to sigma
+
+#TODO: add BIC back and maybe other metrics
 class BfResult:
     def __init__(self, datax, datay, dataz, redchi_threshold=None, residual_rms_threshold=None):
         """
@@ -85,6 +94,7 @@ class BfResult:
         else:
             return min(filtered, key=lambda r: getattr(r, metric))
 
+    #TODO: add optional gaussian count g_n parameter
     def n_best_results(self, n=3, metric='redchi'):
         """
         Return the top N best results based on a metric.
@@ -96,18 +106,30 @@ class BfResult:
         else:
             return sorted(filtered, key=lambda r: getattr(r, metric))[:n]
 
-    def plot(self, n=3, metric='redchi'):
+    # TODO: add optional gaussian count g_n parameter
+    def plot(self, n=3, window = False, metric='redchi'):
         """
         Plot the top N best fits over the data.
         """
+        fig_list = []
         top = self.n_best_results(n=n, metric=metric)
         if not top:
             print("No results to plot.")
             return
 
         for i, r in enumerate(top, 1):
-            self._plot_components_visible(r, self.dataX, self.dataZ)
+            fig = self._plot_components_visible(r, self.dataX, self.dataZ)
+            fig_list.append(fig)
 
+        #TODO: Change to pass self into window for running operations on results with GUI
+        if window:
+            app = QApplication.instance() or QApplication(sys.argv)
+            w = MatplotlibGalleryWindow(fig_list)
+            w.show()
+            app.exec()  # blocks until window is closed
+        else:
+            for f in fig_list:
+                f.show()
     def _plot_components_visible(self, result, x, z):
         """Plot the original z-data and each individual model component. """
         fig, ax = plt.subplots()
@@ -132,8 +154,8 @@ class BfResult:
 
         ax.legend()
         plt.tight_layout()
-        plt.show()
 
+        return fig
 def get_anymax_factor(ratio):
     if (ratio >= 1):  #return FWHM if ratio is invalid
         print("full width any max has invalid ratio")
@@ -169,14 +191,26 @@ def estimate_average_sigma(x, y, peak_index):
 
 
 def filter_by_max_peak_height(y, peaks, peak_info):
-    peaks_abs = abs(peak_info["peak_heights"]) > MIN_ABSOLUTE_PEAK_HEIGHT
-    peaks_rel = abs(peak_prominences(y, peaks)[0]) > -MIN_PROMINENCE
-    return peaks[peaks_abs & peaks_rel]
+    peaks = np.asarray(peaks, dtype=int)
+    if peaks.size == 0:
+        return peaks
+
+    # Height test (uses heights computed by find_peaks)
+    heights = np.asarray(peak_info.get("peak_heights", np.full_like(peaks, np.nan, dtype=float)))
+    ok_height = np.abs(heights) >= float(MIN_ABSOLUTE_PEAK_HEIGHT)
+
+    # Prominence test (re-compute to match y and peaks)
+    prominences = peak_prominences(y, peaks)[0]  # non-negative
+    ok_prom = prominences >= float(MIN_PROMINENCE)
+
+    keep_mask = ok_height & ok_prom
+    return peaks[keep_mask]
 
 #TODO: More initial guesses or maybe guess on mcd data itself
-def generate_initial_guesses(x, y, num_gaussians):
+def generate_initial_guesses_A(x, y_abs, num_gaussians = MAX_BASIS_GAUSSIANS):
+
     # Smooth the noisy data
-    y_smoothed = savgol_filter(y, window_length=WINDOW_LENGTH, polyorder=POLYORDER)
+    y_smoothed = savgol_filter(y_abs, window_length=WINDOW_LENGTH, polyorder=POLYORDER)
     # Calculate the numerical derivatives
     d_y_smoothed = np.gradient(y_smoothed, x)
     # Calculate the 2nd numerical derivatives
@@ -200,43 +234,109 @@ def generate_initial_guesses(x, y, num_gaussians):
     # estimating sigma from raw data is troublesome. Consider trying to do so from second derivative or solve analytically using peak height. Of course, the derivative would need to be normalzied.
 
     # If identified more peaks than needed, sort by amplitude and keep the strongest ones
+
     if len(peak_centers) > num_gaussians:
         sorted_indices = np.argsort(peak_amplitudes)[-num_gaussians:]
         peak_centers = peak_centers[sorted_indices]
         peak_amplitudes = peak_amplitudes[sorted_indices]
         peak_sigmas = np.array(peak_sigmas)[sorted_indices]
 
+    return peak_amplitudes, peak_centers, peak_sigmas
+
+def generate_initial_guesses_B(x, y_mcd, num_gaussians=MAX_BASIS_GAUSSIANS):
+    """
+    Find candidate Gaussian peaks in the MCD data mcd(x) using the smoothed signal directly.
+    No second derivative is used.
+    Returns (peak_amplitudes, peak_centers, peak_sigmas).
+    """
+
+    # 1) Smooth the MCD data to reduce noise
+    mcd_smoothed = savgol_filter(y_mcd, window_length=WINDOW_LENGTH, polyorder=POLYORDER)
+
+    # 2) Thresholds based on the smoothed MCD signal
+    mcd_max = np.nanmax(mcd_smoothed)
+    prominence = PROMINENCE_PERECENT * mcd_max
+    height = HEIGHT_THRESHOLD * mcd_max
+
+    # 3) Find peaks directly in the smoothed MCD
+    peaks_all, info = find_peaks(mcd_smoothed,height=height,distance=DISTANCE,prominence=prominence)
+
+    # 4) Apply your existing post-filters
+    peaks_all = filter_by_max_peak_height(mcd_smoothed, peaks_all, info)
+    peaks = filter_peaks_deltax(x, peaks_all)
+
+    # 5) Build outputs
+    peak_centers = x[peaks]
+    peak_amplitudes = mcd_smoothed[peaks]
+    peak_sigmas = np.array([estimate_average_sigma(x, mcd_smoothed, i) for i in peaks], dtype=float)
+
+    # 6) Keep strongest peaks if too many
+    if len(peak_centers) > num_gaussians:
+        keep = np.argsort(peak_amplitudes)[-num_gaussians:]
+        peak_centers = peak_centers[keep]
+        peak_amplitudes = peak_amplitudes[keep]
+        peak_sigmas = peak_sigmas[keep]
+
+    return peak_amplitudes, peak_centers, peak_sigmas
+
+def guess_on_all_data(x, y_abs, y_mcd, merge_dx=MERGE_DX, max_gc=10):
+    # First, get guesses from absorption data
+    amp_abs, ctr_abs, sig_abs = generate_initial_guesses_A(x, y_abs, num_gaussians=max_gc)
+
+    # Limit how many peaks we allow from MCD data so we don't exceed MAX_BASIS_GAUSSIANS
+    remaining_slots = max(0, max_gc - len(ctr_abs))
+
+    # Get guesses from MCD data
+    amp_mcd, ctr_mcd, sig_mcd = generate_initial_guesses_B(x, y_mcd, remaining_slots)
+
+    # Filter out MCD peaks that are too close to ABS peaks
+    filtered_amp_mcd = []
+    filtered_ctr_mcd = []
+    filtered_sig_mcd = []
+
+    for amp_mcd_i, ctr_mcd_i, sig_mcd_i in zip(amp_mcd, ctr_mcd, sig_mcd):
+        too_close = any(abs(ctr_mcd_i - ctr_abs_i) < merge_dx for ctr_abs_i in ctr_abs)
+        if not too_close:
+            filtered_amp_mcd.append(amp_mcd_i)
+            filtered_ctr_mcd.append(ctr_mcd_i)
+            filtered_sig_mcd.append(sig_mcd_i)
+
+    # Merge the remaining peaks into one set
+    peak_amplitudes = np.concatenate([amp_abs, filtered_amp_mcd], axis=0)
+    peak_centers    = np.concatenate([ctr_abs, filtered_ctr_mcd], axis=0)
+    peak_sigmas     = np.concatenate([sig_abs, filtered_sig_mcd], axis=0)
+
     print(f'Initial Guess Peak Centers: {peak_centers}')
     print(f'Initial Guess Peak Sigmas: {peak_sigmas}')
     print(f'Intial Guess Peak Amplitudes: {peak_amplitudes}')
 
-    #plot peak centers
+    #start standalone qt window
+    app = QApplication.instance() or QApplication(sys.argv)
+
     try:
-        y_at_centers = np.interp(peak_centers, x, y)  # y value at each center
-        plt.figure()
-        plt.plot(x, y, '-', lw=1, alpha=0.7, label='y (original)')
-        plt.scatter(peak_centers, y_at_centers, s=36, zorder=3, label='peak centers')
-        for cx in peak_centers:
-            plt.axvline(cx, ls='--', lw=0.8, alpha=0.5)
-        plt.xlabel('x')
-        plt.ylabel('y')
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
+        continue_fit = show_peak_centers_window(x, y_mcd, peak_centers)
     except Exception as e:
         print(f"Center plotting failed: {e}")
+        sys.exit(1)
+
+    if not continue_fit:
+        print("Program terminated.")
+        sys.exit(0)
+
+    print("Continuing program...")
 
     return peak_amplitudes, peak_centers, peak_sigmas
 
-
+#TODO: maybe rank peaks and not remove in both directions
+#removes peaks in both directions
 def filter_peaks_deltax(x, peaks):
     peak_list = list(peaks)
-    center_prev = x[peaks[0]]  #last center because of ordering
+    center_prev = x[peaks[0]] #last center because of ordering
     prev_peak = peaks[0]
     #every peak but the first
     for peak in peaks[1:]:
         center = x[peak]
-        if center_prev - center < MIN_PEAK_X_DISTANCE:
+        if center_prev-center < MIN_PEAK_X_DISTANCE:
             peak_list.remove(peak)
             if prev_peak in peak_list:
                 peak_list.remove(prev_peak)
@@ -244,38 +344,40 @@ def filter_peaks_deltax(x, peaks):
         prev_peak = peak
     return np.array(peak_list)
 
-#TODO: subsets of length > k
-def brute_force_models(x, y):
+
+def brute_force_models(x, y_abs, y_mcd, min_gc=0, max_gc=10):
     model_list = [
         gaussianModels.model_stable_gaussian_sigma,
         gaussianModels.model_stable_gaussian_deriv_sigma
     ]
 
     # Generate peak guesses
-    peak_amplitudes, peak_centers, peak_sigmas = generate_initial_guesses(x, y, MAX_BASIS_GAUSSIANS)
+    peak_amplitudes, peak_centers, peak_sigmas = guess_on_all_data(x, y_abs, y_mcd, max_gc=max_gc)
 
     # Bundle each peak's parameters into a tuple
     peaks = list(zip(peak_amplitudes, peak_centers, peak_sigmas))
 
-    # Get all non-empty subsets of peaks
+    # Get all subsets of size > k
     all_subsets = []
-    for r in range(1, len(peaks) + 1):
+    for r in range(max(1, min_gc + 1), len(peaks)):
         all_subsets.extend(itertools.combinations(peaks, r))
 
     # Convert each combination into a list of peaks
     all_subsets = [list(subset) for subset in all_subsets]
-    print(all_subsets)
-
+    print(f"total subset length: {len(all_subsets)}")
     all_models = []
 
     # Loop through subsets
-    for subset in all_subsets:
+    total_subsets = len(all_subsets)
+    for idx, subset in enumerate(all_subsets, start=1):
+        print(f"{idx}/{total_subsets} - subset size {len(subset)}")
         # Try all assignments of models to peaks in this subset
         for model_choices in itertools.product(model_list, repeat=len(subset)):
             composite_model = None
             params = None
 
             # Unpack into (pa, pc, ps)
+            #TODO: maybe change prefix
             for i, ((pa, pc, ps), base_model) in enumerate(zip(subset, model_choices)):
                 prefix = f"p{i}_"  # unique prefix for each peak
                 m = Model(base_model.func, prefix=prefix)
@@ -288,11 +390,10 @@ def brute_force_models(x, y):
                     params.update(m.make_params(amplitude=pa, center=pc, sigma=ps))
 
             all_models.append((composite_model, params))
-    print(all_models)
     return all_models
 
 
-def fit_models(mcd_df, percentage_range=PERCENTAGE_RANGE):
+def fit_models(mcd_df, min_gc = 0, max_gc = 10, percentage_range=PERCENTAGE_RANGE):
     """
     Fit all brute-force-generated models to the data in df.
 
@@ -315,15 +416,20 @@ def fit_models(mcd_df, percentage_range=PERCENTAGE_RANGE):
 
     mask = ~np.isnan(wavenumbers) & ~np.isnan(scaled_absorption) & ~np.isnan(scaled_mcd)
     x = wavenumbers[mask]
-    y = scaled_absorption[mask]
-    z = scaled_mcd[mask]
+    y_abs = scaled_absorption[mask]
+    z_mcd = scaled_mcd[mask]
 
-    results = BfResult(x, y, z)
-    model_param_pairs = brute_force_models(x, y)
+    results = BfResult(x, y_abs, z_mcd)
+    #-1 for inclusive
+    #TODO: fix inclusivity in the functions themselves
+    model_param_pairs = brute_force_models(x, y_abs, z_mcd, min_gc= min_gc - 1, max_gc= max_gc - 1)
+
+    count = 0
+    total = len(model_param_pairs)
 
     for model, params in model_param_pairs:
         # Largest absolute value in the measured MCD data (used for scaling)
-        max_data_value = float(np.nanmax(np.abs(z)) or 1e-12)
+        max_data_value = float(np.nanmax(np.abs(z_mcd)) or 1e-12)
 
         # Figure out how big each component is when its amplitude = 1 because gaussian derivatives scale to amp differently
         component_unit_max = {}
@@ -380,8 +486,11 @@ def fit_models(mcd_df, percentage_range=PERCENTAGE_RANGE):
                 )
 
         try:
-            res = model.fit(z, params, x=x)
+            res = model.fit(z_mcd, params, x=x)
             #plot_components_visible(res,x,z)
+
+            count += 1
+            print(f"fit {count} of {total}")
             results.add_result(res)
         except Exception:
             print("Exception raised while fitting\n")
