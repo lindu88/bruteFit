@@ -10,4 +10,4 @@ max_gc = 4
 
 mcd_df = utils.open_csv_with_tkinter()
 results = fit_models(mcd_df, min_gc=min_gc, max_gc=max_gc)
-results.plot(10, window = True, metric='redchi')
+results.plot(10, metric='redchi')

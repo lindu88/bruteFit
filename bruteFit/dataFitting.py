@@ -107,7 +107,7 @@ class BfResult:
             return sorted(filtered, key=lambda r: getattr(r, metric))[:n]
 
     # TODO: add optional gaussian count g_n parameter
-    def plot(self, n=3, window = False, metric='redchi'):
+    def plot(self, n=3, metric='redchi'):
         """
         Plot the top N best fits over the data.
         """
@@ -122,14 +122,10 @@ class BfResult:
             fig_list.append(fig)
 
         #TODO: Change to pass self into window for running operations on results with GUI
-        if window:
-            app = QApplication.instance() or QApplication(sys.argv)
-            w = MatplotlibGalleryWindow(fig_list)
-            w.show()
-            app.exec()  # blocks until window is closed
-        else:
-            for f in fig_list:
-                f.show()
+        app = QApplication.instance() or QApplication(sys.argv)
+        w = MatplotlibGalleryWindow(fig_list)
+        w.show()
+        app.exec()  # blocks until window is closed
     def _plot_components_visible(self, result, x, z):
         """Plot the original z-data and each individual model component. """
         fig, ax = plt.subplots()
