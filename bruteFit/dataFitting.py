@@ -18,7 +18,7 @@ WINDOW_LENGTH = 5  # Window length for Savitzky-Golay smoothing (datapoints?) (r
 POLYORDER = 4  # Polynomial order for Savitzky-Golay smoothing
 
 #peak picking
-HEIGHT_THRESHOLD = 0.015  # Minimum height threshold for peak detection - should be greater than noise after smoothing. Trouble is that the negative side bands likely mean zero isn't at zero.
+HEIGHT_THRESHOLD = 0.04  # Minimum height threshold for peak detection - should be greater than noise after smoothing. Trouble is that the negative side bands likely mean zero isn't at zero.
 PROMINENCE_PERECENT = 0.04  # Prominence is here as a multiple of max height. What is (topographic) prominence? It is "the minimum height necessary to descend to get from the summit to any higher terrain", as it can be seen here
 DISTANCE = 5  # The minimum distance, in number of samples, between peaks. - This should be related to bandwidth for certain
 
@@ -30,7 +30,7 @@ MAX_SIGMA = 60000  #max sigma for gaussians
 MIN_PEAK_X_DISTANCE = 0
 ESTIMATE_SIGMA_ITERATIONS_END = 10  #START/END to END-1/END
 ESTIMATE_SIGMA_ITERATIONS_START = 4
-MIN_ABSOLUTE_PEAK_HEIGHT = 0.00000000000000001
+MIN_ABSOLUTE_PEAK_HEIGHT = 2.0e-15
 MIN_PROMINENCE = 0.000000000000000001  #min relative peak height
 AMPLITUDE_SCALE_LIMIT = 3.0
 
@@ -202,6 +202,17 @@ def filter_by_max_peak_height(y, peaks, peak_info):
     keep_mask = ok_height & ok_prom
     return peaks[keep_mask]
 
+def trim_peaks(peak_amplitudes, peak_centers, peak_sigmas, num_gaussians):
+    k = max(0, int(num_gaussians))
+    order = np.argsort(peak_amplitudes)[::-1]  # sort by amplitude, descending
+    keep = order[:k]                           # works for k = 0
+
+    peak_amplitudes = np.asarray(peak_amplitudes)[keep]
+    peak_centers    = np.asarray(peak_centers)[keep]
+    peak_sigmas     = np.asarray(peak_sigmas)[keep]
+
+    return peak_amplitudes, peak_centers, peak_sigmas
+
 #TODO: More initial guesses or maybe guess on mcd data itself
 def generate_initial_guesses_A(x, y_abs, num_gaussians = MAX_BASIS_GAUSSIANS):
 
@@ -227,16 +238,13 @@ def generate_initial_guesses_A(x, y_abs, num_gaussians = MAX_BASIS_GAUSSIANS):
     peak_amplitudes = y_smoothed[dd_y_peaks]
     # this would work if my gaussian is normalized to unit height. lets try writing this so that we are normalized to unit area. brb
     peak_sigmas = [estimate_average_sigma(x, y_smoothed, peak) for peak in dd_y_peaks]
-    # estimating sigma from raw data is troublesome. Consider trying to do so from second derivative or solve analytically using peak height. Of course, the derivative would need to be normalzied.
 
-    # If identified more peaks than needed, sort by amplitude and keep the strongest ones
+    peak_amplitudes, peak_centers, peak_sigmas = trim_peaks(peak_amplitudes, peak_centers, peak_sigmas, num_gaussians)
 
-    if len(peak_centers) > num_gaussians:
-        sorted_indices = np.argsort(peak_amplitudes)[-num_gaussians:]
-        peak_centers = peak_centers[sorted_indices]
-        peak_amplitudes = peak_amplitudes[sorted_indices]
-        peak_sigmas = np.array(peak_sigmas)[sorted_indices]
-
+    print(f'Initial Guess Peak Centers A: {peak_centers}')
+    print(f'Initial Guess Peak Sigmas A: {peak_sigmas}')
+    print(f'Intial Guess Peak Amplitudes A: {peak_amplitudes}')
+    # 6) Keep strongest peaks if too many
     return peak_amplitudes, peak_centers, peak_sigmas
 
 def generate_initial_guesses_B(x, y_mcd, num_gaussians=MAX_BASIS_GAUSSIANS):
@@ -266,49 +274,83 @@ def generate_initial_guesses_B(x, y_mcd, num_gaussians=MAX_BASIS_GAUSSIANS):
     peak_amplitudes = mcd_smoothed[peaks]
     peak_sigmas = np.array([estimate_average_sigma(x, mcd_smoothed, i) for i in peaks], dtype=float)
 
-    # 6) Keep strongest peaks if too many
-    if len(peak_centers) > num_gaussians:
-        keep = np.argsort(peak_amplitudes)[-num_gaussians:]
-        peak_centers = peak_centers[keep]
-        peak_amplitudes = peak_amplitudes[keep]
-        peak_sigmas = peak_sigmas[keep]
+    peak_amplitudes, peak_centers, peak_sigmas = trim_peaks(peak_amplitudes, peak_centers, peak_sigmas, num_gaussians)
 
+    print(f'Initial Guess Peak Centers B: {peak_centers}')
+    print(f'Initial Guess Peak Sigmas B: {peak_sigmas}')
+    print(f'Intial Guess Peak Amplitudes B: {peak_amplitudes}')
+    # 6) Keep strongest peaks if too many
     return peak_amplitudes, peak_centers, peak_sigmas
+
+def merge_keep_all_A_add_far_B_debug(amp_abs, ctr_abs, sigma_abs,amp_mcd, ctr_mcd, sigma_mcd,merge_dx):
+    import math
+
+    # Pack & sort A by center
+    # Build list of (amp, center, sigma) for A
+    A = list(zip(amp_abs, ctr_abs, sigma_abs))
+    # Convert all values to floats
+    A = [(float(amp), float(center), float(sigma)) for amp, center, sigma in A]
+    # Sort by center value
+    A.sort(key=lambda peak: peak[1])
+
+    # Build list of (amp, center, sigma) for B (no sorting yet)
+    B = list(zip(amp_mcd, ctr_mcd, sigma_mcd))
+    B = [(float(amp), float(center), float(sigma)) for amp, center, sigma in B]
+
+    print("\n--- A centers (sorted) ---")
+    print([a[1] for a in A])
+
+    merged = list(A)
+
+    print("\n--- Scanning B peaks ---")
+    for b in B:
+        ctrB = b[1]
+        # distances to all A centers
+        dists = [abs(ctrB - a[1]) for a in A]
+        min_dist = min(dists) if dists else math.inf
+        if dists:
+            print(f"B ctr={ctrB:.6f}  min|B-A|={min_dist:.3f}  (merge_dx={merge_dx}) --> ", end="")
+        else:
+            print(f"B ctr={ctrB:.6f}  (no A peaks) --> ", end="")
+
+        if not A or min_dist > merge_dx:
+            print("KEEP")
+            merged.append(b)
+        else:
+            print("DROP (too close to A)")
+
+    merged.sort(key=lambda p: p[1])
+    amps  = [p[0] for p in merged]
+    ctrs  = [p[1] for p in merged]
+    sigs  = [p[2] for p in merged]
+
+    print("\n--- MERGED centers ---")
+    print(ctrs)
+    print("---debug done-------------------------------------\n\n")
+
+    return amps, ctrs, sigs
 
 def guess_on_all_data(x, y_abs, y_mcd, merge_dx=MERGE_DX, max_gc=10, min_gc=0):
     # First, get guesses from absorption data
-    amp_abs, ctr_abs, sig_abs = generate_initial_guesses_A(x, y_abs, num_gaussians=max_gc)
+    amp_abs, ctr_abs, sigma_abs = generate_initial_guesses_A(x, y_abs, num_gaussians=max_gc)
 
     # Limit how many peaks we allow from MCD data so we don't exceed MAX_BASIS_GAUSSIANS
-    remaining_slots = max(0, max_gc - len(ctr_abs))
-
     # Get guesses from MCD data
-    amp_mcd, ctr_mcd, sig_mcd = generate_initial_guesses_B(x, y_mcd, remaining_slots)
+    amp_mcd, ctr_mcd, sigma_mcd = generate_initial_guesses_B(x, y_mcd, num_gaussians=max_gc)
 
-    # Filter out MCD peaks that are too close to ABS peaks
-    filtered_amp_mcd = []
-    filtered_ctr_mcd = []
-    filtered_sig_mcd = []
+    print("len A:", len(amp_abs), len(ctr_abs), len(sigma_abs))
+    print("len B:", len(amp_mcd), len(ctr_mcd), len(sigma_mcd))
+    print("B centers preview:", list(ctr_mcd))
 
-    for amp_mcd_i, ctr_mcd_i, sig_mcd_i in zip(amp_mcd, ctr_mcd, sig_mcd):
-        too_close = any(abs(ctr_mcd_i - ctr_abs_i) < merge_dx for ctr_abs_i in ctr_abs)
-        if not too_close:
-            filtered_amp_mcd.append(amp_mcd_i)
-            filtered_ctr_mcd.append(ctr_mcd_i)
-            filtered_sig_mcd.append(sig_mcd_i)
-
-    # Merge the remaining peaks into one set
-    peak_amplitudes = np.concatenate([amp_abs, filtered_amp_mcd], axis=0)
-    peak_centers    = np.concatenate([ctr_abs, filtered_ctr_mcd], axis=0)
-    peak_sigmas     = np.concatenate([sig_abs, filtered_sig_mcd], axis=0)
+    peak_amplitudes,peak_centers,peak_sigmas = merge_keep_all_A_add_far_B_debug(amp_abs, ctr_abs, sigma_abs, amp_mcd, ctr_mcd, sigma_mcd, merge_dx)
 
     print(f'Initial Guess Peak Centers: {peak_centers}')
     print(f'Initial Guess Peak Sigmas: {peak_sigmas}')
     print(f'Intial Guess Peak Amplitudes: {peak_amplitudes}')
 
+    pc_length = len(peak_centers)
     #start standalone qt window
     app = QApplication.instance() or QApplication(sys.argv)
-    pc_length = len(peak_centers)
     #TODO: fix so no more -1 -- needs to be fixed in brute_force and fit_models
     tfits = total_fits(pc_length, min_gc + 1, max_gc + 1)
 
@@ -359,7 +401,7 @@ def brute_force_models(x, y_abs, y_mcd, min_gc=0, max_gc=10):
 
     # Get all subsets of size > k
     all_subsets = []
-    for r in range(max(1, min_gc + 1), len(peaks)):
+    for r in range(max(1, min_gc + 1), len(peaks) + 1):
         all_subsets.extend(itertools.combinations(peaks, r))
 
     # Convert each combination into a list of peaks

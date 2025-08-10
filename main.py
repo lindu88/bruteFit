@@ -6,7 +6,7 @@ from bruteFit.dataFitting import fit_models,  total_fits
 
 #min and max gaussian/lorentzian count inclusive min exclusive max
 min_gc = 2
-max_gc = 4
+max_gc = 6
 
 mcd_df = utils.open_csv_with_tkinter()
 results = fit_models(mcd_df, min_gc=min_gc, max_gc=max_gc)
