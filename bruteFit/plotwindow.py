@@ -98,14 +98,14 @@ class guessWindow(QDialog):
         self.x = np.asarray(x, dtype=float)
         self.y_abs = np.asarray(y_abs, dtype=float)
         self.y_mcd = np.asarray(y_mcd, dtype=float)
-        self.fc = fc  # your FitConfig instance (edited in place)
+
+        self.fc = fc
 
         self.resize(1400, 700)
 
         # ----- Main layout
         layout = QVBoxLayout(self)
 
-        # ----- Upper row: plot (left) + FitConfig editor (right)
         upper_row = QHBoxLayout()
         layout.addLayout(upper_row)
 
@@ -118,7 +118,7 @@ class guessWindow(QDialog):
         self._form = QFormLayout(self._editor_group)
         upper_row.addWidget(self._editor_group, 2)
 
-        # Build the editor from your fc (no schema changes)
+        # Build the editor from your fc
         self._fc_widgets: Dict[str, QWidget] = {}
         self._build_fc_editor()
 
@@ -157,7 +157,7 @@ class guessWindow(QDialog):
         def total_fits(m, n, k):
             return sum((2 ** i) * comb(m, i) for i in range(n, min(k, m + 1)))
 
-        tfit = total_fits(len(peak_centers), min_gc + 1, max_gc + 1)
+        tfit = total_fits(len(peak_centers), min_gc, max_gc + 1)
 
         ax.text(0.02, 0.98, f"total fits = {int(tfit)}",
                 transform=ax.transAxes, va="top", ha="left",
@@ -303,11 +303,11 @@ class guessWindow(QDialog):
         def total_fits(m, n, k):
             return sum((2 ** i) * comb(m, i) for i in range(n, min(k, m + 1)))
 
-        tfit = total_fits(len(self.pc), self.fc.MIN_GC + 1, self.fc.MAX_GC + 1)
+        tfit = total_fits(len(self.pc), self.fc.MIN_GC, self.fc.MAX_GC + 1)
 
         label = f"total fits = {int(tfit)}"
         if tfit == 0 and len(self.pc) < (self.fc.MIN_GC + 1):
-            label += f"  (need ≥{self.fc.MIN_GC + 1} peaks, have {len(self.pc)} peaks)"
+            label += f"  (need ≥{self.fc.MIN_GC} peaks, have {len(self.pc)} peaks - or change MIN_GC)"
 
         ax.text(0.02, 0.98, label, transform=ax.transAxes, va="top", ha="left",
                 bbox=dict(boxstyle="round", alpha=0.25))
@@ -539,3 +539,5 @@ class guessWindow(QDialog):
 
     def get_guess(self):
         return self.pa, self.pc, self.ps
+    def get_fc(self):
+        return self.fc

@@ -133,7 +133,7 @@ class BfResult:
 
         return fig
 
-def brute_force_models(x, y_abs, y_mcd, fc: fitConfig):
+def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
     model_list = [
         gaussianModels.model_stable_gaussian_sigma,
         gaussianModels.model_stable_gaussian_deriv_sigma
@@ -143,6 +143,7 @@ def brute_force_models(x, y_abs, y_mcd, fc: fitConfig):
     dlg = guessWindow(x, y_abs, y_mcd, fc)
     if dlg.exec() == QDialog.DialogCode.Accepted:  # blocks until user clicks
         peak_amplitudes, peak_centers, peak_sigmas = dlg.get_guess()
+        fc = dlg.get_fc()
     else:
         raise RuntimeError("User cancelled peak guesses.")
 
@@ -151,7 +152,7 @@ def brute_force_models(x, y_abs, y_mcd, fc: fitConfig):
 
     # Get all subsets of size > k
     all_subsets = []
-    for r in range(max(1, fc.MIN_GC + 1), len(peaks) + 1):
+    for r in range(max(1, fc.MIN_GC), len(peaks) + 1):
         all_subsets.extend(itertools.combinations(peaks, r))
 
     # Convert each combination into a list of peaks
@@ -182,10 +183,10 @@ def brute_force_models(x, y_abs, y_mcd, fc: fitConfig):
                     params.update(m.make_params(amplitude=pa, center=pc, sigma=ps))
 
             all_models.append((composite_model, params))
-    return all_models
+    return all_models, fc
 
 
-def fit_models(mcd_df, fc: fitConfig):
+def fit_models(mcd_df, fc = None):
     """
     Fit all brute-force-generated models to the data in df.
 
@@ -214,7 +215,10 @@ def fit_models(mcd_df, fc: fitConfig):
     results = BfResult(x, y_abs, z_mcd)
     #-1 for inclusive
     #TODO: fix inclusivity in the functions themselves
-    model_param_pairs = brute_force_models(x, y_abs, z_mcd, fc)
+    if fc is not None:
+        model_param_pairs, fc = brute_force_models(x, y_abs, z_mcd, fc)
+    else:
+        model_param_pairs, fc = brute_force_models(x, y_abs, z_mcd)
 
     count = 0
     total = len(model_param_pairs)
