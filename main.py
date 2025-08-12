@@ -1,13 +1,14 @@
 import numpy as np
 
 import bruteFit.utils as utils
-import bruteFit.dataFitting
-from bruteFit.dataFitting import fit_models,  total_fits
+from bruteFit.fitConfig import FitConfig
+from bruteFit.dataFitting import fit_models
 
-#min and max gaussian/lorentzian count inclusive min exclusive max
-min_gc = 2
-max_gc = 6
+fc = FitConfig()
+fc.MIN_GC = 3 # changed to exclusive
+fc.MAX_GC = 6 # changed to inclusive
+fc.print()
 
 mcd_df = utils.open_csv_with_tkinter()
-results = fit_models(mcd_df, min_gc=min_gc, max_gc=max_gc)
-results.plot(10, metric='redchi')
+results = fit_models(mcd_df, fc)
+results.plot(10, metric='residual_rms')
