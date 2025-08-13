@@ -28,68 +28,132 @@ from matplotlib.backends.backend_qtagg import (
 from . import fitConfig as configContainer
 
 matplotlib.use("QtAgg")
+class MainResultWindow(QMainWindow):
+    def __init__(self, bfResult=None):
+        super().__init__()
+        self.plot_n = 10
+        self.bfResult = bfResult
+        self.setWindowTitle("BF Results")
+        self.resize(1100, 700)
 
-#TODO: more complex gui if continuing with project - more options and final value printing - use BfResult as init param
-class MatplotlibGalleryWindow(QMainWindow):
-    def __init__(self, figures=None, parent=None):
-        super().__init__(parent)
-
-        self.setWindowTitle("Matplotlib Plots")
-        self.resize(700, 700)
-
-        # ---- Central widget with a layout ----
+        # ---- Central widget for QMainWindow ----
         central = QWidget(self)
-        central_layout = QVBoxLayout(central)
-        central_layout.setContentsMargins(0, 0, 0, 0)
         self.setCentralWidget(central)
 
-        # ---- Scrollable area just for the plots ----
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        central_layout.addWidget(scroll)
+        # Horizontal split: gallery (left) + buttons (right)
+        main_layout = QHBoxLayout(central)
 
-        # Container inside the scroll area
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setSpacing(12)
+        figures = self.bfResult.get_plot_figs(self.plot_n)
+        if len(figures) == 0:
+            raise RuntimeError("No results to plot")
+        self.gallery = MatplotlibGallery(figures=figures)
+        main_layout.addWidget(self.gallery, stretch=1)
 
-        # Add each figure as a canvas + toolbar pair
-        for fig in figures:
-            block = QWidget(container)
-            block_layout = QVBoxLayout(block)
-            block_layout.setContentsMargins(8, 8, 8, 8)
+        # --- Right: vertical button panel ---
+        btn_layout = QVBoxLayout()
+        btn_layout.setAlignment(Qt.AlignTop)  # keep buttons at the top
 
+        self._build_controls(btn_layout)
+
+        # Spacer at the bottom if you want them stuck at top
+        btn_layout.addStretch(1)
+
+        # Add button panel to the right side (once)
+        main_layout.addLayout(btn_layout)
+
+    def _build_controls(self, btn_layout):
+        # Helper to make metric buttons
+        def add_metric_button(label, metric):
+            btn = QPushButton(f"Metric: {label}")
+            btn.clicked.connect(
+                lambda _, m=metric: self.gallery.set_figures(
+                    self.bfResult.get_plot_figs(self.spin_plot_n.value(), metric=m, gc_start=self.spin_gc_start.value(), gc_end=self.spin_gc_end.value())
+                )
+            )
+            btn_layout.addWidget(btn)
+
+        # Metric buttons
+        add_metric_button("redchi", "redchi")
+        add_metric_button("bic", "bic")
+        add_metric_button("rms", "residual_rms")
+        add_metric_button("combo", "combo")
+
+        # SpinBox for plot number
+        btn_layout.addWidget(QLabel("Plot n #"))
+        self.spin_plot_n = QSpinBox()
+        self.spin_plot_n.setRange(0, 100)   # adjust max as needed
+        self.spin_plot_n.setValue(10)
+        self.spin_plot_n.valueChanged.connect(lambda value: print(f"Plot n number set to {value}"))
+        btn_layout.addWidget(self.spin_plot_n)
+
+        btn_layout.addWidget(QLabel("Filter Gaussian count start"))
+        self.spin_gc_start = QSpinBox()
+        self.spin_gc_start.setRange(0, 10)
+        self.spin_gc_start.setValue(0)
+        btn_layout.addWidget(self.spin_gc_start)
+
+        btn_layout.addWidget(QLabel("Filter Gaussian count end"))
+        self.spin_gc_end = QSpinBox()
+        self.spin_gc_end.setRange(0, 10)
+        self.spin_gc_end.setValue(10)
+        btn_layout.addWidget(self.spin_gc_end)
+
+class MatplotlibGallery(QWidget):
+    def __init__(self, figures=None, parent=None):
+        super().__init__(parent)
+        self.figures = list(figures or [])
+
+        # Main layout
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Scroll area
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        root_layout.addWidget(self.scroll)
+
+        # Container inside scroll
+        self.container = QWidget()
+        self.layout = QVBoxLayout(self.container)
+        self.layout.setSpacing(12)
+        self.layout.setContentsMargins(8, 8, 8, 8)
+        self.scroll.setWidget(self.container)
+
+        self.update_gallery()
+
+    def set_figures(self, figures):
+        """Replace the figures and refresh the gallery."""
+        self.figures = list(figures or [])
+        self.update_gallery()
+
+    def update_gallery(self):
+        """Clear and rebuild the gallery from current figures."""
+        # Remove existing widgets
+        while self.layout.count():
+            item = self.layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        # Add figures as fixed-size canvases with toolbars
+        for fig in self.figures:
             canvas = FigureCanvas(fig)
-
             dpi = fig.get_dpi()
             w_px = int(fig.get_figwidth() * dpi)
             h_px = int(fig.get_figheight() * dpi)
             canvas.setMinimumSize(w_px, h_px)
-            canvas.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)  # scroll instead of squeeze
+            canvas.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
-            toolbar = NavigationToolbar(canvas, self)
-            block_layout.addWidget(toolbar)
-            block_layout.addWidget(canvas)
-            layout.addWidget(block)
-
+            toolbar = NavigationToolbar(canvas, self.container)
+            self.layout.addWidget(toolbar)
+            self.layout.addWidget(canvas)
             canvas.draw()
 
-        layout.addStretch(1)
-        scroll.setWidget(container)
+        self.layout.addStretch(1)
 
 class guessWindow(QDialog):
-    fig = None
-    fc = None
-    x = None
-    y_mcd = None
-    y_abs = None
-
-    pa = None
-    pc = None
-    ps = None
-
     def __init__(self, x, y_abs, y_mcd, fc, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle("peak confirmation")

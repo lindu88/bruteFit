@@ -12,14 +12,14 @@ import numpy as np
 
 from . import fitConfig
 from .fitConfig import FitConfig
-from .plotwindow import MatplotlibGalleryWindow, guessWindow
+from .plotwindow import MatplotlibGallery, guessWindow, MainResultWindow
 
 
 #TODO: Docs and use pyside6 for parameters
 
 #TODO: add BIC back and maybe other metrics
 class BfResult:
-    def __init__(self, datax, datay, dataz, redchi_threshold=None, residual_rms_threshold=None):
+    def __init__(self, datax, datay, dataz, redchi_threshold=None, residual_rms_threshold=None, bic_threshold=None):
         """
         Initialize the bfResult container with optional filter thresholds.
 
@@ -33,6 +33,12 @@ class BfResult:
         self.results = []  # List of lmfit.ModelResult objects
         self.redchi_threshold = redchi_threshold
         self.residual_rms_threshold = residual_rms_threshold
+        self.bic_threshold = bic_threshold
+
+        #default weights for combo metric
+        self.bic_w = 0.25
+        self.redchi_w = 0.5
+        self.rms_w = 0.25
 
     def add_result(self, result: ModelResult):
         """Add a new lmfit ModelResult to the list."""
@@ -45,18 +51,42 @@ class BfResult:
         """Compute the RMS of residuals for a fit."""
         return np.sqrt(np.mean(result.residual ** 2))
 
-    def _filter_results(self):
+    def _filter_results(self, gc_start=None, gc_end=None):
         """
-        Filter results based on thresholds set at initialization.
+        Filter results based on thresholds set at initialization and number of components.
         Returns a list of ModelResult objects that pass all thresholds.
+
+        Args:
+            gc_start (int, optional): Minimum number of components allowed.
+            gc_end (int, optional): Maximum number of components allowed.
         """
         filtered = self.results
 
+        # --- Threshold filters ---
         if self.redchi_threshold is not None:
             filtered = [r for r in filtered if r.redchi < self.redchi_threshold]
 
         if self.residual_rms_threshold is not None:
             filtered = [r for r in filtered if self._residual_rms(r) < self.residual_rms_threshold]
+
+        if self.bic_threshold is not None:
+            filtered = [r for r in filtered if r.bic < self.bic_threshold]
+
+        # --- Component count filter ---
+        if gc_start is not None or gc_end is not None:
+            start = gc_start if gc_start is not None else 0
+            end = gc_end if gc_end is not None else float('inf')
+
+            def count_components(res):
+                # count unique prefixes (A0_, B1_, etc.)
+                param_names = res.params.keys()
+                prefixes = {name.split('_', 1)[0] for name in param_names}
+                return len(prefixes)
+
+            filtered = [
+                r for r in filtered
+                if start <= count_components(r) <= end
+            ]
 
         return filtered
 
@@ -69,70 +99,129 @@ class BfResult:
         if not filtered:
             return None
 
+
+        #can add more metrics here
         if metric == 'residual_rms':
             return min(filtered, key=self._residual_rms)
         else:
             return min(filtered, key=lambda r: getattr(r, metric))
-
     #TODO: add optional gaussian count g_n parameter
-    def n_best_results(self, n=3, metric='redchi'):
+    def n_best_results(self, n=3, metric='redchi', gc_start=None, gc_end=None):
         """
         Return the top N best results based on a metric.
         Options: 'redchi', 'residual_rms'
         """
-        filtered = self._filter_results()
+        filtered = self._filter_results(gc_start=gc_start, gc_end=gc_end)
         if metric == 'residual_rms':
             return sorted(filtered, key=self._residual_rms)[:n]
+        elif metric == 'combo':
+            return sorted(filtered, key=self._combo_metric)[:n]
         else:
             return sorted(filtered, key=lambda r: getattr(r, metric))[:n]
 
+    def _combo_metric(self, result: ModelResult):
+        return self.bic_w * getattr(result, 'bic') + self.redchi_w * getattr(result, 'redchi') + self.rms_w * self._residual_rms(result)
+
     # TODO: add optional gaussian count g_n parameter
-    def plot(self, n=3, metric='redchi'):
+    def get_plot_figs(self, n=3, metric='redchi', gc_start=None, gc_end=None):
         """
         Plot the top N best fits over the data.
         """
         fig_list = []
-        top = self.n_best_results(n=n, metric=metric)
+        top = self.n_best_results(n=n, metric=metric, gc_start=gc_start, gc_end=gc_end)
         if not top:
             print("No results to plot.")
             return
 
         for i, r in enumerate(top, 1):
-            fig = self._plot_components_visible(r, self.dataX, self.dataZ)
+            fig = self._plot_components_visible(r, self.dataX, self.dataZ, i)
             fig_list.append(fig)
+            #need this to no run out of memory
+            plt.close()
 
-        #TODO: Change to pass self into window for running operations on results with GUI
-        app = QApplication.instance() or QApplication(sys.argv)
-        w = MatplotlibGalleryWindow(fig_list)
-        w.show()
-        app.exec()  # blocks until window is closed
-    def _plot_components_visible(self, result, x, z):
-        """Plot the original z-data and each individual model component. """
-        fig, ax = plt.subplots()
+        return fig_list
 
-        # Plot the measured data
+    def _plot_components_visible(self, result, x, z, i):
+        """Plot the original z-data, model components, metrics, and parameters."""
+        from collections import defaultdict
+
+        # Make a wider figure for more breathing room
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # Extra left margin for parameters, extra right margin for clarity
+        fig.subplots_adjust(left=0.2, right=0.9)
+
+        # Plot measured data
         ax.plot(x, z, '-', lw=1, alpha=0.7, label='Measured Data')
 
-        # Evaluate each component from the fit
+        # Evaluate and plot each component
         components = result.eval_components(x=x)
-
-        # Plot each component as-is
         for name, comp in components.items():
             ax.plot(x, comp, lw=2, label=name)
 
         # Axis labels
         ax.set_xlabel("X")
-        ax.set_ylabel("Z")
+        ax.set_ylabel("MCD")
 
-        # Compute and display residual RMS in the top-left
-        residual_rms = self._residual_rms(result)
-        ax.text(0.02, 0.95, f"Residual RMS: {residual_rms:.3g}",transform=ax.transAxes, fontsize=12, va='top', ha='left')
+        # Metrics in top-left (axes coords)
+        metrics = {
+            "Residual RMS": self._residual_rms(result),
+            "BIC": getattr(result, 'bic'),
+            "redchi": result.redchi,
+            "Combo": self._combo_metric(result)
+        }
+        metrics_text = "\n".join(f"{name}: {val:.3g}" for name, val in metrics.items())
+        ax.text(0.02, 0.95, metrics_text,
+                transform=ax.transAxes, fontsize=8,
+                va='top', ha='left')
+
+        # Index number in top-right (axes coords)
+        ax.text(0.98, 0.95, f"#{i}",
+                transform=ax.transAxes, fontsize=12,
+                va='top', ha='right')
+
+        # Parameters from eval_result (grouped, with separation) – placed in data coords
+        params_dict = self.eval_result(result)  # your single-result eval function
+
+        grouped = defaultdict(list)
+        for name, val in params_dict.items():
+            prefix = name.split('_', 1)[0]  # e.g., "A0", "B1"
+            grouped[prefix].append(f"{name}: {val:.3g}")
+
+        # Build lines with a blank line between groups
+        params_lines = []
+        for prefix in sorted(grouped.keys()):
+            params_lines.extend(grouped[prefix])
+            params_lines.append("")  # blank line between groups
+        params_text = "\n".join(params_lines).strip()
+
+        # Position to the left of the first x value
+        x_min = min(x)
+        y_max = max(z)
+        offset = 0.15 * (max(x) - min(x))  # 10% of x range (more space than before)
+        ax.text(x_min - offset, y_max, params_text,
+                fontsize=7, va='top', ha='right',
+                transform=ax.transData)
 
         ax.legend()
-        plt.tight_layout()
+        #print results too
+        self.print_eval_result(result,i)
 
         return fig
 
+    def eval_result(self, result):
+        if not hasattr(result, "params"):
+            raise ValueError("Provided object has no 'params' attribute")
+
+        return {name: p.value for name, p in result.params.items()}
+
+    def print_eval_result(self, result, i):
+        """Pretty-print parameters from a single lmfit ModelResult."""
+        params_dict = self.eval_result(result)
+        print(f"=== Fit Parameters === Index: {i}")
+        for name, value in params_dict.items():
+            print(f"{name:20} {value:.6g}")
+        print(f"=== Parameters === END: {i}")
 def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
     model_list = [
         gaussianModels.model_stable_gaussian_sigma,
@@ -172,7 +261,10 @@ def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
             # Unpack into (pa, pc, ps)
             #TODO: maybe change prefix
             for i, ((pa, pc, ps), base_model) in enumerate(zip(subset, model_choices)):
-                prefix = f"p{i}_"  # unique prefix for each peak
+                if base_model == gaussianModels.model_stable_gaussian_deriv_sigma:
+                    prefix = f"A{i}_"
+                else:  # gaussianModels.model_stable_gaussian_sigma
+                    prefix = f"B{i}_"
                 m = Model(base_model.func, prefix=prefix)
 
                 if composite_model is None:
@@ -269,6 +361,7 @@ def fit_models(mcd_df, fc = None):
                     vary=True
                 )
 
+            #TODO: cap amplitude
             elif name.endswith('amplitude'):
                 # Allow sign flips; limit size based on data and the component's natural size
                 prefix = name[:-len('amplitude')]
@@ -291,5 +384,13 @@ def fit_models(mcd_df, fc = None):
         except Exception:
             print("Exception raised while fitting\n")
             pass
+    # --- Show results window before returning ---
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+
+    win = MainResultWindow(bfResult=results)
+    win.show()
+
+    app.exec()
 
     return results

@@ -13,7 +13,6 @@ class FitConfig:
 
     # Fitting
     MERGE_DX: int = 500  # Distance to merge centers between abs and mcd
-    MAX_BASIS_GAUSSIANS: int = 5  # Max number of basis Gaussians for fitting
     PERCENTAGE_RANGE: int = 10  # Allowed percentage relaxation for re-fitting after removing poor curves
     MAX_SIGMA: int = 60000  # Max sigma for Gaussians
     MIN_PEAK_X_DISTANCE: int = 0
