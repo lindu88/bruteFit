@@ -67,7 +67,9 @@ class MainResultWindow(QMainWindow):
             btn = QPushButton(f"Metric: {label}")
             btn.clicked.connect(
                 lambda _, m=metric: self.gallery.set_figures(
-                    self.bfResult.get_plot_figs(self.spin_plot_n.value(), metric=m, gc_start=self.spin_gc_start.value(), gc_end=self.spin_gc_end.value())
+                    self.bfResult.get_plot_figs(self.spin_plot_n.value(), metric=m, gc_start=self.spin_gc_start.value(), gc_end=self.spin_gc_end.value(),
+                                                min_amplitude=self.spin_min_amp.value(), max_amplitude=self.spin_max_amp.value(), max_sigma=self.spin_max_sigma.value(),
+                                                min_sigma=self.spin_min_sigma.value())
                 )
             )
             btn_layout.addWidget(btn)
@@ -81,7 +83,7 @@ class MainResultWindow(QMainWindow):
         # SpinBox for plot number
         btn_layout.addWidget(QLabel("Plot n #"))
         self.spin_plot_n = QSpinBox()
-        self.spin_plot_n.setRange(0, 100)   # adjust max as needed
+        self.spin_plot_n.setRange(0, 10)
         self.spin_plot_n.setValue(10)
         self.spin_plot_n.valueChanged.connect(lambda value: print(f"Plot n number set to {value}"))
         btn_layout.addWidget(self.spin_plot_n)
@@ -97,6 +99,57 @@ class MainResultWindow(QMainWindow):
         self.spin_gc_end.setRange(0, 10)
         self.spin_gc_end.setValue(10)
         btn_layout.addWidget(self.spin_gc_end)
+
+        # --- Sigma spin boxes ---
+        avg_sigma = 350.0
+        min_sigma_default = avg_sigma / 10  # 35.0
+        max_sigma_default = avg_sigma * 10  # 3500.0
+
+        btn_layout.addWidget(QLabel("Min sigma"))
+        self.spin_min_sigma = QDoubleSpinBox()
+        self.spin_min_sigma.setDecimals(6)
+        self.spin_min_sigma.setRange(-1e308, 1e308)
+        self.spin_min_sigma.setSingleStep(20)
+        self.spin_min_sigma.setValue(min_sigma_default)
+        btn_layout.addWidget(self.spin_min_sigma)
+
+        btn_layout.addWidget(QLabel("Max sigma"))
+        self.spin_max_sigma = QDoubleSpinBox()
+        self.spin_max_sigma.setDecimals(6)
+        self.spin_max_sigma.setRange(-1e308, 1e308)
+        self.spin_max_sigma.setSingleStep(20)
+        self.spin_max_sigma.setValue(max_sigma_default)
+        btn_layout.addWidget(self.spin_max_sigma)
+
+        #custom sci notation spinbox class
+        class _SciSpinBox(QDoubleSpinBox):
+            def textFromValue(self, value: float) -> str:
+                return f"{value:.3e}"  # adjust precision
+
+            def valueFromText(self, text: str) -> float:
+                try:
+                    return float(text.replace("E", "e"))
+                except Exception:
+                    return 0.0
+
+
+        btn_layout.addWidget(QLabel("Min amplitude"))
+        self.spin_min_amp = _SciSpinBox()
+        self.spin_min_amp.setDecimals(18)
+        self.spin_min_amp.setRange(-1e308, 1e308)
+        self.spin_min_amp.setSingleStep(9.5e-15)
+        self.spin_min_amp.setValue(0)
+        btn_layout.addWidget(self.spin_min_amp)
+
+        btn_layout.addWidget(QLabel("Max amplitude"))
+        self.spin_max_amp = _SciSpinBox()
+        self.spin_max_amp.setDecimals(18)
+        self.spin_max_amp.setRange(-1e308, 1e308)
+        self.spin_max_amp.setSingleStep(9.5e-15)
+        self.spin_max_amp.setValue(3000)
+        btn_layout.addWidget(self.spin_max_amp)
+
+
 
 class MatplotlibGallery(QWidget):
     def __init__(self, figures=None, parent=None):

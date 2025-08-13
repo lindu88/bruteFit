@@ -1,3 +1,4 @@
+import math
 import sys
 from PySide6.QtWidgets import QApplication, QDialog
 from scipy.signal import find_peaks, savgol_filter, peak_prominences
@@ -51,7 +52,7 @@ class BfResult:
         """Compute the RMS of residuals for a fit."""
         return np.sqrt(np.mean(result.residual ** 2))
 
-    def _filter_results(self, gc_start=None, gc_end=None):
+    def _filter_results(self, gc_start=None, gc_end=None, min_sigma = None, max_sigma = None, min_amplitude = None, max_amplitude = None):
         """
         Filter results based on thresholds set at initialization and number of components.
         Returns a list of ModelResult objects that pass all thresholds.
@@ -83,12 +84,40 @@ class BfResult:
                 prefixes = {name.split('_', 1)[0] for name in param_names}
                 return len(prefixes)
 
-            filtered = [
-                r for r in filtered
-                if start <= count_components(r) <= end
-            ]
+            filtered = [r for r in filtered if start <= count_components(r) <= end]
 
-        return filtered
+        #filter by min and max sigma
+
+        def get_sig(res):
+            params_dict = self.eval_result(res)
+            return [v for k, v in params_dict.items() if k.endswith("_sigma")]
+
+        def get_amp(res):
+            params_dict = self.eval_result(res)
+            return [v for k, v in params_dict.items() if k.endswith("_amplitude")]
+
+        # Ensure bounds are not None
+        min_sigma = 0 if min_sigma is None else min_sigma
+        max_sigma = float("inf") if max_sigma is None else max_sigma
+        min_amplitude = 0 if min_amplitude is None else min_amplitude
+        max_amplitude = float("inf") if max_amplitude is None else max_amplitude
+
+        filtered_results = []
+        for r in filtered:
+            sigs = get_sig(r)
+            amps = get_amp(r)
+
+            # Skip if no components
+            if not sigs or not amps:
+                continue
+
+            sig_in_range = all(min_sigma <= s <= max_sigma for s in sigs)
+            amp_in_range = all(min_amplitude <= abs(a) <= max_amplitude for a in amps)
+
+            if sig_in_range and amp_in_range:
+                filtered_results.append(r)
+
+        return filtered_results
 
     def best_result(self, metric='redchi'):
         """
@@ -106,12 +135,11 @@ class BfResult:
         else:
             return min(filtered, key=lambda r: getattr(r, metric))
     #TODO: add optional gaussian count g_n parameter
-    def n_best_results(self, n=3, metric='redchi', gc_start=None, gc_end=None):
-        """
-        Return the top N best results based on a metric.
-        Options: 'redchi', 'residual_rms'
-        """
-        filtered = self._filter_results(gc_start=gc_start, gc_end=gc_end)
+    def n_best_results(self, n=3, metric='redchi', gc_start=None, gc_end=None, min_sigma = None,
+                       max_sigma = None, min_amplitude = None, max_amplitude = None):
+
+        filtered = self._filter_results(gc_start=gc_start, gc_end=gc_end, min_sigma=min_sigma,
+                                        max_sigma=max_sigma, min_amplitude = min_amplitude, max_amplitude=max_amplitude)
         if metric == 'residual_rms':
             return sorted(filtered, key=self._residual_rms)[:n]
         elif metric == 'combo':
@@ -123,12 +151,14 @@ class BfResult:
         return self.bic_w * getattr(result, 'bic') + self.redchi_w * getattr(result, 'redchi') + self.rms_w * self._residual_rms(result)
 
     # TODO: add optional gaussian count g_n parameter
-    def get_plot_figs(self, n=3, metric='redchi', gc_start=None, gc_end=None):
+    def get_plot_figs(self, n=3, metric='redchi', gc_start=None, gc_end=None, min_sigma = None,
+                      max_sigma = None, min_amplitude = None, max_amplitude = None):
         """
         Plot the top N best fits over the data.
         """
         fig_list = []
-        top = self.n_best_results(n=n, metric=metric, gc_start=gc_start, gc_end=gc_end)
+        top = self.n_best_results(n=n, metric=metric, gc_start=gc_start, gc_end=gc_end, min_sigma=min_sigma,
+                                  max_sigma=max_sigma, min_amplitude = min_amplitude, max_amplitude=max_amplitude)
         if not top:
             print("No results to plot.")
             return
