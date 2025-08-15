@@ -10,6 +10,7 @@ from lmfit.model import ModelResult, Model
 import matplotlib.pyplot as plt
 import numpy as np
 
+from joblib import Parallel, delayed
 
 from . import fitConfig
 from .fitConfig import FitConfig
@@ -86,7 +87,7 @@ class BfResult:
 
             filtered = [r for r in filtered if start <= count_components(r) <= end]
 
-        #filter by min and max sigma
+        #filter by min and max sigma/amp
 
         def get_sig(res):
             params_dict = self.eval_result(res)
@@ -308,7 +309,7 @@ def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
     return all_models, fc
 
 
-def fit_models(mcd_df, fc = None):
+def fit_models(mcd_df, fc = None, processes = 4):
     """
     Fit all brute-force-generated models to the data in df.
 
@@ -335,15 +336,55 @@ def fit_models(mcd_df, fc = None):
     z_mcd = scaled_mcd[mask]
 
     results = BfResult(x, y_abs, z_mcd)
-    #-1 for inclusive
-    #TODO: fix inclusivity in the functions themselves
     if fc is not None:
         model_param_pairs, fc = brute_force_models(x, y_abs, z_mcd, fc)
     else:
         model_param_pairs, fc = brute_force_models(x, y_abs, z_mcd)
 
+    ##########################################################################################
+    def split_into_n(seq, n):
+        """Evenly split a sequence into n chunks (last chunks may differ by 1)."""
+        n = max(1, min(n, len(seq)))  # clamp
+        k, m = divmod(len(seq), n)
+        # First m chunks have size k+1, the rest have size k
+        chunks = []
+        start = 0
+        for i in range(n):
+            size = k + (1 if i < m else 0)
+            if size == 0:
+                break
+            chunks.append(seq[start:start + size])
+            start += size
+        return chunks
+    ############################################################################################
+
+    chunks = split_into_n(model_param_pairs, processes)
+
+    results_lists = Parallel(n_jobs=processes, backend="loky")(
+        delayed(fit_worker)(f"Worker-{i + 1}", x, z_mcd, fc, chunk) for i, chunk in enumerate(chunks))
+
+    # Loop through each list of results returned from each worker
+    for sublist in results_lists:
+        # Loop through each individual result in that sublist
+        for r in sublist:
+            results.add_result(r)
+
+    # --- Show results window before returning ---
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+
+    win = MainResultWindow(bfResult=results)
+    win.show()
+
+    app.exec()
+
+    return results
+
+def fit_worker(name, x, z_mcd, fc, model_param_pairs):
     count = 0
     total = len(model_param_pairs)
+
+    out = []
 
     for model, params in model_param_pairs:
         # Largest absolute value in the measured MCD data (used for scaling)
@@ -370,10 +411,10 @@ def fit_models(mcd_df, fc = None):
                     component_unit_max[prefix] = 1e-12
 
         # Now set reasonable bounds for each parameter
-        for name, p in params.items():
+        for p_name, p in params.items():
             delta = abs(p.value) * (fc.PERCENTAGE_RANGE / 100.0)
 
-            if name.endswith('sigma'):
+            if p_name.endswith('sigma'):
                 # Let widths shrink more: down to 10% of original, still >0
                 min_sigma = max(1e-12, 0.1 * abs(p.value))
                 max_sigma = p.value + delta
@@ -383,7 +424,7 @@ def fit_models(mcd_df, fc = None):
                     vary=True
                 )
 
-            elif name.endswith('center'):
+            elif p_name.endswith('center'):
                 # Peak position can move ±delta
                 p.set(
                     min=p.value - delta,
@@ -391,12 +432,12 @@ def fit_models(mcd_df, fc = None):
                     vary=True
                 )
 
-            #TODO: cap amplitude
-            elif name.endswith('amplitude'):
+            # TODO: cap amplitude
+            elif p_name.endswith('amplitude'):
                 # Allow sign flips; limit size based on data and the component's natural size
-                prefix = name[:-len('amplitude')]
+                prefix = p_name[:-len('amplitude')]
                 unit_max = component_unit_max[prefix]
-                #allows larger scale for derivative shapes
+                # allows larger scale for derivative shapes
                 allowed_amp = fc.AMPLITUDE_SCALE_LIMIT * (max_data_value / unit_max)
                 p.set(
                     min=-allowed_amp,
@@ -406,21 +447,13 @@ def fit_models(mcd_df, fc = None):
 
         try:
             res = model.fit(z_mcd, params, x=x)
-            #plot_components_visible(res,x,z)
+            # plot_components_visible(res,x,z)
 
             count += 1
-            print(f"fit {count} of {total}")
-            results.add_result(res)
+            print(f"Process {name}: fit {count} of {total}")
+            out.append(res)
         except Exception:
             print("Exception raised while fitting\n")
             pass
-    # --- Show results window before returning ---
-    from PySide6.QtWidgets import QApplication
-    app = QApplication.instance() or QApplication([])
 
-    win = MainResultWindow(bfResult=results)
-    win.show()
-
-    app.exec()
-
-    return results
+    return out

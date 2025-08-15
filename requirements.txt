@@ -3,3 +3,4 @@ lmfit
 matplotlib
 numpy
 pandas
+joblib
