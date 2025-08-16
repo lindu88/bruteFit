@@ -1,5 +1,7 @@
 import math
 import sys
+import time
+
 from PySide6.QtWidgets import QApplication, QDialog
 from scipy.signal import find_peaks, savgol_filter, peak_prominences
 from . import gaussianModels
@@ -360,14 +362,29 @@ def fit_models(mcd_df, fc = None, processes = 4):
 
     chunks = split_into_n(model_param_pairs, processes)
 
+    #just to know how long the fitting took
+    start = time.perf_counter()  # Start timer
+
     results_lists = Parallel(n_jobs=processes, backend="loky")(
         delayed(fit_worker)(f"Worker-{i + 1}", x, z_mcd, fc, chunk) for i, chunk in enumerate(chunks))
+
 
     # Loop through each list of results returned from each worker
     for sublist in results_lists:
         # Loop through each individual result in that sublist
         for r in sublist:
             results.add_result(r)
+
+    end = time.perf_counter()
+
+    elapsed = end - start
+
+    minutes = int(elapsed // 60)
+    seconds = elapsed % 60
+
+    print("\n####################################### -> Start of time print")
+    print(f"Elapsed time: {minutes} min {seconds:.2f} sec for {processes} workers and {len(model_param_pairs)} fits")
+    print("####################################### -> End of time print")
 
     # --- Show results window before returning ---
     from PySide6.QtWidgets import QApplication

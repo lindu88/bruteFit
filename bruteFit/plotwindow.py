@@ -258,14 +258,13 @@ class guessWindow(QDialog):
 
     # --------------- Plot helpers ---------------
 
-    @staticmethod
-    def get_peak_centers_fig(x, y_mcd, peak_centers, min_gc, max_gc) -> Figure:
-        y_at_centers = np.interp(peak_centers, x, y_mcd)
+    def get_peak_centers_fig(self, peak_centers) -> Figure:
+        y_at_centers = np.interp(peak_centers, self.x, self.y_mcd)
 
         fig = Figure(figsize=(8, 4), dpi=100)
         ax = fig.add_subplot(111)
 
-        ax.plot(x, y_mcd, '-', lw=1, alpha=0.7, label='y (original)')
+        ax.plot(self.x, self.y_mcd, '-', lw=1, alpha=0.7, label='y (original)')
         ax.scatter(peak_centers, y_at_centers, s=36, zorder=3, label='peak centers')
         for cx in peak_centers:
             ax.axvline(cx, ls='--', lw=0.8, alpha=0.5)
@@ -274,7 +273,7 @@ class guessWindow(QDialog):
         def total_fits(m, n, k):
             return sum((2 ** i) * comb(m, i) for i in range(n, min(k, m + 1)))
 
-        tfit = total_fits(len(peak_centers), min_gc, max_gc + 1)
+        tfit = total_fits(len(peak_centers), self.fc.MIN_GC, self.fc.MAX_GC + 1)
 
         ax.text(0.02, 0.98, f"total fits = {int(tfit)}",
                 transform=ax.transAxes, va="top", ha="left",
@@ -301,17 +300,16 @@ class guessWindow(QDialog):
         self._plot_area.addWidget(canvas)
 
         #hook clicks and set tolerance
-        self._click_dx = float(getattr(self.fc, "MIN_PEAK_X_DISTANCE", 0.5) or 0.5)
         self._mpl_cid = canvas.mpl_connect('button_press_event', self._on_click)
 
         canvas.draw_idle()
 
 
-    def update(self):  # keep name if you want; it shadows QWidget.update(), which is fine here
+    def update(self):
         pa, pc, ps = self._guess_on_all_data(self.x, self.y_abs, self.y_mcd)
 
         # Build and embed the figure
-        fig = guessWindow.get_peak_centers_fig(self.x, self.y_mcd, pc, self.fc.MIN_GC, self.fc.MAX_GC)
+        fig = self.get_peak_centers_fig(pc)
         self._set_figure_in_ui(fig)
 
         # cache
@@ -322,7 +320,7 @@ class guessWindow(QDialog):
     # --------------- FitConfig editor ---------------
 
     def _build_fc_editor(self) -> None:
-        self._clear_form_layout(self._form)
+        self._clear_form_layout()
         self._fc_widgets.clear()
 
         # create simple numeric editors from current fc
@@ -347,10 +345,9 @@ class guessWindow(QDialog):
 
         self._form.addRow(QLabel("Edit and click Update."))
 
-    @staticmethod
-    def _clear_form_layout(form: QFormLayout) -> None:
-        while form.rowCount():
-            form.removeRow(0)
+    def _clear_form_layout(self) -> None:
+        while self._form.rowCount():
+            self._form.removeRow(0)
 
     def _apply_editor_to_fc(self) -> None:
         for key, w in self._fc_widgets.items():
@@ -379,8 +376,11 @@ class guessWindow(QDialog):
         i = int(np.argmin(np.abs(pc - x_click)))
         if abs(pc[i] - x_click) <= dx:
             # remove aligned entries
-            self.pa = np.delete(self.pa, i) if self.pa is not None and len(self.pa) == len(pc) else self.pa
-            self.ps = np.delete(self.ps, i) if self.ps is not None and len(self.ps) == len(pc) else self.ps
+            if not(len(self.pc) == len(self.pa) == len(self.ps)):
+                print("Error in peak array lengths: they are not the same.")
+                return -1
+            self.pa = np.delete(self.pa, i)
+            self.ps = np.delete(self.ps, i)
             self.pc = np.delete(self.pc, i)
             return i
         return -1
@@ -390,6 +390,7 @@ class guessWindow(QDialog):
         Matplotlib click callback. Left-click removes the nearest peak within dx.
         """
         if event.inaxes is None or event.xdata is None:
+            print("Error in click callback.")
             return
         # Left click only; change to event.button == 3 for right-click behavior
         if getattr(event, "button", 1) != 1:
