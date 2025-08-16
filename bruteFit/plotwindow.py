@@ -401,41 +401,18 @@ class guessWindow(QDialog):
             self._redraw_current()
 
     def _redraw_current(self) -> None:
-        if self.fig is None:
-            return
+        pc = getattr(self, "pc", None)
 
-        self.fig.clear()
-        ax = self.fig.add_subplot(111)
+        if pc is not None and len(pc) > 0:
+            centers = list(pc)
+        else:
+            centers = []
 
-        # base signal
-        ax.plot(self.x, self.y_mcd, '-', lw=1, alpha=0.7, label='y (original)')
+        # Build a fresh figure using the helper
+        fig = self.get_peak_centers_fig(centers)
 
-        # peaks (if any)
-        if self.pc is not None and len(self.pc) > 0:
-            y_at = np.interp(self.pc, self.x, self.y_mcd)
-            ax.scatter(self.pc, y_at, s=36, zorder=3, label='peak centers')
-            for cx in self.pc:
-                ax.axvline(cx, ls='--', lw=0.8, alpha=0.5)
-
-        # recompute overlay text with current count
-        def total_fits(m, n, k):
-            return sum((2 ** i) * comb(m, i) for i in range(n, min(k, m + 1)))
-
-        tfit = total_fits(len(self.pc), self.fc.MIN_GC, self.fc.MAX_GC + 1)
-
-        label = f"total fits = {int(tfit)}"
-        if tfit == 0 and len(self.pc) < (self.fc.MIN_GC + 1):
-            label += f"  (need ≥{self.fc.MIN_GC} peaks, have {len(self.pc)} peaks - or change MIN_GC)"
-
-        ax.text(0.02, 0.98, label, transform=ax.transAxes, va="top", ha="left",
-                bbox=dict(boxstyle="round", alpha=0.25))
-
-
-        ax.set_xlabel('x')
-        ax.set_ylabel('signal')
-        ax.legend(loc="best")
-        self.fig.tight_layout()
-        self.fig.canvas.draw_idle()
+        # Embed it in the UI using the helper
+        self._set_figure_in_ui(fig)
 
     @staticmethod
     def _get_anymax_factor(ratio):
