@@ -83,7 +83,7 @@ class MainResultWindow(QMainWindow):
         # SpinBox for plot number
         btn_layout.addWidget(QLabel("Plot n #"))
         self.spin_plot_n = QSpinBox()
-        self.spin_plot_n.setRange(0, 10)
+        self.spin_plot_n.setRange(0, 100)
         self.spin_plot_n.setValue(10)
         self.spin_plot_n.valueChanged.connect(lambda value: print(f"Plot n number set to {value}"))
         btn_layout.addWidget(self.spin_plot_n)
