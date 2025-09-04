@@ -25,6 +25,8 @@ class FitConfig:
     MAX_GC: int = 6
     MIN_GC: int = 2
 
+    DELTA_CTR: float = 10
+
     def to_string(self) -> str:
         """Return a formatted string representation of the config."""
         lines = ["FitConfig:"]

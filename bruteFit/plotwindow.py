@@ -75,8 +75,8 @@ class MainResultWindow(QMainWindow):
             btn_layout.addWidget(btn)
 
         # Metric buttons
-        add_metric_button("redchi", "redchi")
-        add_metric_button("bic", "bic")
+        add_metric_button("redchi(MCD only sort)", "redchi")
+        add_metric_button("bic(MCD only sort)", "bic")
         add_metric_button("rms", "residual_rms")
         add_metric_button("combo", "combo")
 
@@ -261,10 +261,10 @@ class guessWindow(QDialog):
     def get_peak_centers_fig(self, peak_centers) -> Figure:
         y_at_centers = np.interp(peak_centers, self.x, self.y_mcd)
 
-        fig = Figure(figsize=(8, 4), dpi=100)
-        ax = fig.add_subplot(111)
+        fig = Figure(figsize=(8, 8), dpi=100)
+        ax = fig.add_subplot(211)
 
-        ax.plot(self.x, self.y_mcd, '-', lw=1, alpha=0.7, label='y (original)')
+        ax.plot(self.x, self.y_mcd, '-', lw=1, alpha=0.7, label='mcd')
         ax.scatter(peak_centers, y_at_centers, s=36, zorder=3, label='peak centers')
         for cx in peak_centers:
             ax.axvline(cx, ls='--', lw=0.8, alpha=0.5)
@@ -282,6 +282,17 @@ class guessWindow(QDialog):
         ax.set_xlabel('x')
         ax.set_ylabel('signal')
         ax.legend()
+        fig.tight_layout()
+
+        ax2 = fig.add_subplot(212)  # Bottom subplot
+        ax2.plot(self.x, self.y_abs, 'g-', lw=1, alpha=0.6, label='abs')
+        ax2.set_xlabel('x')
+        ax2.set_ylabel('abs intensity')
+        ax2.scatter(peak_centers, y_at_centers, s=36, zorder=3, label='peak centers')
+        for cx in peak_centers:
+            ax2.axvline(cx, ls='--', lw=0.8, alpha=0.5)
+        ax2.legend()
+
         fig.tight_layout()
         return fig
 
@@ -316,6 +327,7 @@ class guessWindow(QDialog):
         self.pa = pa
         self.pc = pc
         self.ps = ps
+
 
     # --------------- FitConfig editor ---------------
 
@@ -612,6 +624,7 @@ class guessWindow(QDialog):
         print(f'Initial Guess Peak Centers: {peak_centers}')
         print(f'Initial Guess Peak Sigmas: {peak_sigmas}')
         print(f'Intial Guess Peak Amplitudes: {peak_amplitudes}')
+
 
         return peak_amplitudes, peak_centers, peak_sigmas
 

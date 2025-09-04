@@ -2,6 +2,7 @@ import math
 import sys
 import time
 
+import scipy.integrate as integrate
 from PySide6.QtWidgets import QApplication, QDialog
 from scipy.signal import find_peaks, savgol_filter, peak_prominences
 from . import gaussianModels
@@ -11,11 +12,13 @@ import itertools
 from lmfit.model import ModelResult, Model
 import matplotlib.pyplot as plt
 import numpy as np
+from collections import defaultdict
 
 from joblib import Parallel, delayed
 
 from . import fitConfig
 from .fitConfig import FitConfig
+from .gaussianModels import stable_gaussian_sigma
 from .plotwindow import MatplotlibGallery, guessWindow, MainResultWindow
 
 
@@ -34,7 +37,7 @@ class BfResult:
         self.dataX = datax
         self.dataY = datay
         self.dataZ = dataz
-        self.results = []  # List of lmfit.ModelResult objects
+        self.mcd_results = [()]  # List of lmfit.ModelResult objects
         self.redchi_threshold = redchi_threshold
         self.residual_rms_threshold = residual_rms_threshold
         self.bic_threshold = bic_threshold
@@ -44,12 +47,9 @@ class BfResult:
         self.redchi_w = 0.5
         self.rms_w = 0.25
 
-    def add_result(self, result: ModelResult):
+    def add_result(self, result):
         """Add a new lmfit ModelResult to the list."""
-        if isinstance(result, ModelResult):
-            self.results.append(result)
-        else:
-            raise TypeError("Only lmfit.ModelResult instances can be added.")
+        self.mcd_results.append(result)
 
     def _residual_rms(self, result: ModelResult):
         """Compute the RMS of residuals for a fit."""
@@ -64,17 +64,25 @@ class BfResult:
             gc_start (int, optional): Minimum number of components allowed.
             gc_end (int, optional): Maximum number of components allowed.
         """
-        filtered = self.results
+
+        #get rid of empty set
+        filtered_fst = self.mcd_results
+        filtered = []
+        for res in filtered_fst:
+            if res != ():
+                filtered.append(res)
+
+
 
         # --- Threshold filters ---
         if self.redchi_threshold is not None:
-            filtered = [r for r in filtered if r.redchi < self.redchi_threshold]
+            filtered = [(r_mcd,r_abs) for (r_mcd,r_abs) in filtered if r_mcd.redchi < self.redchi_threshold]
 
         if self.residual_rms_threshold is not None:
-            filtered = [r for r in filtered if self._residual_rms(r) < self.residual_rms_threshold]
+            filtered = [(r_mcd,r_abs) for (r_mcd,r_abs) in filtered if self._residual_rms(r_mcd) < self.residual_rms_threshold]
 
         if self.bic_threshold is not None:
-            filtered = [r for r in filtered if r.bic < self.bic_threshold]
+            filtered = [(r_mcd,r_abs) for (r_mcd,r_abs) in filtered if r_mcd.bic < self.bic_threshold]
 
         # --- Component count filter ---
         if gc_start is not None or gc_end is not None:
@@ -87,7 +95,7 @@ class BfResult:
                 prefixes = {name.split('_', 1)[0] for name in param_names}
                 return len(prefixes)
 
-            filtered = [r for r in filtered if start <= count_components(r) <= end]
+            filtered = [(r_mcd,r_abs) for (r_mcd,r_abs) in filtered if start <= count_components(r_mcd) <= end]
 
         #filter by min and max sigma/amp
 
@@ -106,9 +114,9 @@ class BfResult:
         max_amplitude = float("inf") if max_amplitude is None else max_amplitude
 
         filtered_results = []
-        for r in filtered:
-            sigs = get_sig(r)
-            amps = get_amp(r)
+        for (r_mcd,r_abs) in filtered:
+            sigs = get_sig(r_mcd)
+            amps = get_amp(r_mcd)
 
             # Skip if no components
             if not sigs or not amps:
@@ -118,25 +126,10 @@ class BfResult:
             amp_in_range = all(min_amplitude <= abs(a) <= max_amplitude for a in amps)
 
             if sig_in_range and amp_in_range:
-                filtered_results.append(r)
+                filtered_results.append((r_mcd,r_abs))
 
         return filtered_results
 
-    def best_result(self, metric='redchi'):
-        """
-        Return the single best result based on a metric.
-        Options: 'redchi', 'residual_rms'
-        """
-        filtered = self._filter_results()
-        if not filtered:
-            return None
-
-
-        #can add more metrics here
-        if metric == 'residual_rms':
-            return min(filtered, key=self._residual_rms)
-        else:
-            return min(filtered, key=lambda r: getattr(r, metric))
     #TODO: add optional gaussian count g_n parameter
     def n_best_results(self, n=3, metric='redchi', gc_start=None, gc_end=None, min_sigma = None,
                        max_sigma = None, min_amplitude = None, max_amplitude = None):
@@ -144,45 +137,54 @@ class BfResult:
         filtered = self._filter_results(gc_start=gc_start, gc_end=gc_end, min_sigma=min_sigma,
                                         max_sigma=max_sigma, min_amplitude = min_amplitude, max_amplitude=max_amplitude)
         if metric == 'residual_rms':
-            return sorted(filtered, key=self._residual_rms)[:n]
+            items = [item for item in filtered if item[0] is not None]
+            return sorted(items, key=lambda x: self._residual_rms(x[0]) + self._residual_rms(x[1]))[:n]
         elif metric == 'combo':
-            return sorted(filtered, key=self._combo_metric)[:n]
+            items = [item for item in filtered if item[0] is not None]
+            return sorted(items, key=lambda x: self._combo_metric(x[0] + self._combo_metric(x[1])))[:n]
         else:
-            return sorted(filtered, key=lambda r: getattr(r, metric))[:n]
+            # Assume metric is an attribute of the first ModelResult (item[0])
+            items = [item for item in filtered if hasattr(item[0], metric)]
+            return sorted(items, key=lambda r: getattr(r[0], metric))[:n]
 
     def _combo_metric(self, result: ModelResult):
         return self.bic_w * getattr(result, 'bic') + self.redchi_w * getattr(result, 'redchi') + self.rms_w * self._residual_rms(result)
 
     # TODO: add optional gaussian count g_n parameter
-    def get_plot_figs(self, n=3, metric='redchi', gc_start=None, gc_end=None, min_sigma = None,
-                      max_sigma = None, min_amplitude = None, max_amplitude = None):
+    def get_plot_figs(self, n=3, metric='redchi', gc_start=None, gc_end=None,
+                      min_sigma=None, max_sigma=None, min_amplitude=None, max_amplitude=None):
         """
-        Plot the top N best fits over the data.
+        Plot the top N best fits over the data from both mcd and abs results.
         """
         fig_list = []
-        top = self.n_best_results(n=n, metric=metric, gc_start=gc_start, gc_end=gc_end, min_sigma=min_sigma,
-                                  max_sigma=max_sigma, min_amplitude = min_amplitude, max_amplitude=max_amplitude)
-        if not top:
-            print("No results to plot.")
-            return
 
-        for i, r in enumerate(top, 1):
-            fig = self._plot_components_visible(r, self.dataX, self.dataZ, i)
+        results = self.n_best_results(
+            n=n, metric=metric, gc_start=gc_start, gc_end=gc_end,
+            min_sigma=min_sigma, max_sigma=max_sigma,
+            min_amplitude=min_amplitude, max_amplitude=max_amplitude
+        )
+
+        for i, (r_mcd, r_abs) in enumerate(results, 1):
+            fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)  # 2 rows, 1 column subplots
+
+            # Plot on the first axis
+            self._plot_components_visible(r_mcd, self.dataX, self.dataZ, i, axs[0])
+
+            # Plot on the second axis
+            self._plot_components_visible(r_abs, self.dataX, self.dataY, i, axs[1])
+
+            self.print_A_over_D((r_mcd, r_abs), self.dataX)
+
+            plt.tight_layout()
             fig_list.append(fig)
-            #need this to no run out of memory
-            plt.close()
+            plt.close(fig)  # Close to free memory if plotting many
 
         return fig_list
-
-    def _plot_components_visible(self, result, x, z, i):
-        """Plot the original z-data, model components, metrics, and parameters."""
+    def _plot_components_visible(self, result, x, z, i, ax):
+        """Plot the original z-data, model components, metrics, and parameters on given axis."""
         from collections import defaultdict
 
-        # Make a wider figure for more breathing room
-        fig, ax = plt.subplots(figsize=(10, 6))
-
-        # Extra left margin for parameters, extra right margin for clarity
-        fig.subplots_adjust(left=0.2, right=0.9)
+        # No new figure creation here — use the provided ax
 
         # Plot measured data
         ax.plot(x, z, '-', lw=1, alpha=0.7, label='Measured Data')
@@ -194,7 +196,7 @@ class BfResult:
 
         # Axis labels
         ax.set_xlabel("X")
-        ax.set_ylabel("MCD")
+        ax.set_ylabel("Intensity")
 
         # Metrics in top-left (axes coords)
         metrics = {
@@ -231,17 +233,15 @@ class BfResult:
         # Position to the left of the first x value
         x_min = min(x)
         y_max = max(z)
-        offset = 0.15 * (max(x) - min(x))  # 10% of x range (more space than before)
+        offset = 0.15 * (max(x) - min(x))  # 15% of x range for margin
         ax.text(x_min - offset, y_max, params_text,
                 fontsize=7, va='top', ha='right',
                 transform=ax.transData)
 
         ax.legend()
-        #print results too
-        self.print_eval_result(result,i)
 
-        return fig
-
+        # print results too
+        self.print_eval_result(result, i)
     def eval_result(self, result):
         if not hasattr(result, "params"):
             raise ValueError("Provided object has no 'params' attribute")
@@ -255,6 +255,16 @@ class BfResult:
         for name, value in params_dict.items():
             print(f"{name:20} {value:.6g}")
         print(f"=== Parameters === END: {i}")
+    def print_A_over_D(self, result, x):
+        mcd_res, abs_res = result
+        mcd_comps = mcd_res.eval_components(x=x).items()
+        abs_comps = abs_res.eval_components(x=x).items()
+
+        for i, ((name_mcd, mcd_comp), (name_abs, abs_comp)) in enumerate(zip(mcd_comps, abs_comps)):
+            mcd_comp_area = integrate.trapezoid(abs(mcd_comp), x)
+            abs_comp_area = integrate.trapezoid(abs(abs_comp), x)
+            print(f"A/D values with index {i} in fit and names {name_mcd} {name_abs}: {mcd_comp_area / abs_comp_area}")
+
 def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
     model_list = [
         gaussianModels.model_stable_gaussian_sigma,
@@ -288,8 +298,11 @@ def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
         print(f"{idx}/{total_subsets} - subset size {len(subset)}")
         # Try all assignments of models to peaks in this subset
         for model_choices in itertools.product(model_list, repeat=len(subset)):
-            composite_model = None
-            params = None
+            composite_mcd_model = None
+            params_mcd = None
+
+            composite_abs_model = None
+            params_abs = None
 
             # Unpack into (pa, pc, ps)
             #TODO: maybe change prefix
@@ -298,16 +311,26 @@ def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
                     prefix = f"A{i}_"
                 else:  # gaussianModels.model_stable_gaussian_sigma
                     prefix = f"B{i}_"
-                m = Model(base_model.func, prefix=prefix)
+                m_mcd = Model(base_model.func, prefix=prefix)
+                #abs only gaussian
+                m_abs = Model(stable_gaussian_sigma, prefix=f"B{i}")
 
-                if composite_model is None:
-                    composite_model = m
-                    params = m.make_params(amplitude=pa, center=pc, sigma=ps)
+                if composite_mcd_model is None:
+                    composite_mcd_model = m_mcd
+                    params_mcd = m_mcd.make_params(amplitude=pa, center=pc, sigma=ps)
                 else:
-                    composite_model += m
-                    params.update(m.make_params(amplitude=pa, center=pc, sigma=ps))
+                    composite_mcd_model += m_mcd
+                    params_mcd.update(m_mcd.make_params(amplitude=pa, center=pc, sigma=ps))
 
-            all_models.append((composite_model, params))
+                #add abs model
+                if composite_abs_model is None:
+                    composite_abs_model = m_abs
+                    params_abs = m_abs.make_params(amplitude=pa, center=pc, sigma=ps)
+                else:
+                    composite_abs_model += m_abs
+                    params_abs.update(m_abs.make_params(amplitude=pa, center=pc, sigma=ps))
+
+            all_models.append(((composite_mcd_model, params_mcd),(composite_abs_model, params_abs)))
     return all_models, fc
 
 
@@ -366,7 +389,7 @@ def fit_models(mcd_df, fc = None, processes = 4):
     start = time.perf_counter()  # Start timer
 
     results_lists = Parallel(n_jobs=processes, backend="loky")(
-        delayed(fit_worker)(f"Worker-{i + 1}", x, z_mcd, fc, chunk) for i, chunk in enumerate(chunks))
+        delayed(fit_worker)(f"Worker-{i + 1}", x, z_mcd, y_abs, fc, chunk) for i, chunk in enumerate(chunks))
 
 
     # Loop through each list of results returned from each worker
@@ -397,80 +420,89 @@ def fit_models(mcd_df, fc = None, processes = 4):
 
     return results
 
-def fit_worker(name, x, z_mcd, fc, model_param_pairs):
+def fit_worker(name, x, z_mcd, y_abs, fc, model_param_pairs):
     count = 0
     total = len(model_param_pairs)
 
     out = []
 
-    for model, params in model_param_pairs:
-        # Largest absolute value in the measured MCD data (used for scaling)
-        max_data_value = float(np.nanmax(np.abs(z_mcd)) or 1e-12)
+    for ((model_mcd, params_mcd), (model_abs, params_abs)) in model_param_pairs:
+        # Largest absolute value in the measured MCD/ABS data (used for scaling)
+        max_data_value_mcd = float(np.nanmax(np.abs(z_mcd)) or 1e-12)
+        max_data_value_abs = float(np.nanmax(np.abs(y_abs)) or 1e-12)
 
-        # Figure out how big each component is when its amplitude = 1 because gaussian derivatives scale to amp differently
-        component_unit_max = {}
-        for param_name in params:
+        # --- MCD Component Scaling ---
+        component_unit_max_mcd = {}
+        for param_name in params_mcd:
             if param_name.endswith('amplitude'):
                 prefix = param_name[:-len('amplitude')]
-
-                # Copy parameters and set THIS amplitude to 1.0
-                temp_params = params.copy()
+                temp_params = params_mcd.copy()
                 temp_params[param_name].set(value=1.0)
 
-                # Evaluate just this component
-                components = model.eval_components(x=x, params=temp_params)
+                components = model_mcd.eval_components(x=x, params=temp_params)
                 comp_data = components.get(prefix)
 
-                # Store the maximum absolute value for scaling purposes
-                if comp_data is not None:
-                    component_unit_max[prefix] = float(np.nanmax(np.abs(comp_data))) or 1e-12
-                else:
-                    component_unit_max[prefix] = 1e-12
+                component_unit_max_mcd[prefix] = float(np.nanmax(np.abs(comp_data))) or 1e-12
 
-        # Now set reasonable bounds for each parameter
-        for p_name, p in params.items():
+        # --- ABS Component Scaling ---
+        component_unit_max_abs = {}
+        for param_name in params_abs:
+            if param_name.endswith('amplitude'):
+                prefix = param_name[:-len('amplitude')]
+                temp_params = params_abs.copy()
+                temp_params[param_name].set(value=1.0)
+
+                components = model_abs.eval_components(x=x, params=temp_params)
+                comp_data = components.get(prefix)
+
+                component_unit_max_abs[prefix] = float(np.nanmax(np.abs(comp_data))) or 1e-12
+
+        # --- Set bounds for MCD parameters ---
+        for p_name, p in params_mcd.items():
             delta = abs(p.value) * (fc.PERCENTAGE_RANGE / 100.0)
+            delta_ctr = fc.DELTA_CTR
 
             if p_name.endswith('sigma'):
-                # Let widths shrink more: down to 10% of original, still >0
                 min_sigma = max(1e-12, 0.1 * abs(p.value))
-                max_sigma = p.value + delta
-                p.set(
-                    min=min_sigma,
-                    max=max_sigma,
-                    vary=True
-                )
+                p.set(min=min_sigma, max=p.value + delta, vary=True)
 
             elif p_name.endswith('center'):
-                # Peak position can move ±delta
-                p.set(
-                    min=p.value - delta,
-                    max=p.value + delta,
-                    vary=True
-                )
+                p.set(min=p.value - delta_ctr, max=p.value + delta_ctr, vary=True)
 
-            # TODO: cap amplitude
             elif p_name.endswith('amplitude'):
-                # Allow sign flips; limit size based on data and the component's natural size
                 prefix = p_name[:-len('amplitude')]
-                unit_max = component_unit_max[prefix]
-                # allows larger scale for derivative shapes
-                allowed_amp = fc.AMPLITUDE_SCALE_LIMIT * (max_data_value / unit_max)
-                p.set(
-                    min=-allowed_amp,
-                    max=allowed_amp,
-                    vary=True
-                )
+                unit_max = component_unit_max_mcd.get(prefix, 1e-12)
+                allowed_amp = fc.AMPLITUDE_SCALE_LIMIT * (max_data_value_mcd / unit_max)
+                p.set(min=-allowed_amp, max=allowed_amp, vary=True)
+
+        # --- Set bounds for ABS parameters ---
+        for p_name, p in params_abs.items():
+            delta = abs(p.value) * (fc.PERCENTAGE_RANGE / 100.0)
+            delta_ctr = fc.DELTA_CTR
+
+            if p_name.endswith('sigma'):
+                min_sigma = max(1e-12, 0.1 * abs(p.value))
+                p.set(min=min_sigma, max=p.value + delta, vary=True)
+
+            elif p_name.endswith('center'):
+                p.set(min=p.value - delta_ctr, max=p.value + delta_ctr, vary=True)
+
+            elif p_name.endswith('amplitude'):
+                prefix = p_name[:-len('amplitude')]
+                unit_max = component_unit_max_abs.get(prefix, 1e-12)
+                allowed_amp = fc.AMPLITUDE_SCALE_LIMIT * (max_data_value_abs / unit_max)
+                p.set(min=0.0, max=allowed_amp, vary=True)  # ABS is positive
 
         try:
-            res = model.fit(z_mcd, params, x=x)
-            # plot_components_visible(res,x,z)
+            res_mcd = model_mcd.fit(z_mcd, params_mcd, x=x)
+            res_abs = model_abs.fit(y_abs, params_abs, x=x)
 
             count += 1
             print(f"Process {name}: fit {count} of {total}")
-            out.append(res)
-        except Exception:
-            print("Exception raised while fitting\n")
-            pass
+            out.append((res_mcd, res_abs))
+
+        except Exception as e:
+            print(f"Exception raised while fitting: {e}\n")
+            continue
 
     return out
