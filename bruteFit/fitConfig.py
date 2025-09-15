@@ -27,6 +27,11 @@ class FitConfig:
 
     DELTA_CTR: float = 10
 
+    CONCENTRATION_MOL_L: float = 1.0
+    PATHLENGTH_CM: float = 0.1
+    FIELD_B: float =  0.1
+
+
     def to_string(self) -> str:
         """Return a formatted string representation of the config."""
         lines = ["FitConfig:"]

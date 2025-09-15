@@ -12,6 +12,10 @@ def main():
     fc.MIN_GC = 1  # inclusive
     fc.MAX_GC = 6  # exclusive
 
+    fc.PATHLENGTH_CM = 1
+    fc.FIELD_B = 1
+    fc.CONCENTRATION_MOL_L = 1
+
     """
     When window opens you can left click to remove peaks - you cannot add as I thought that was a bad design choice
     because we want to keep the data as reproducible as possible.

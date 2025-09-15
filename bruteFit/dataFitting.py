@@ -255,15 +255,18 @@ class BfResult:
         for name, value in params_dict.items():
             print(f"{name:20} {value:.6g}")
         print(f"=== Parameters === END: {i}")
+
     def print_A_over_D(self, result, x):
         mcd_res, abs_res = result
         mcd_comps = mcd_res.eval_components(x=x).items()
         abs_comps = abs_res.eval_components(x=x).items()
 
-        for i, ((name_mcd, mcd_comp), (name_abs, abs_comp)) in enumerate(zip(mcd_comps, abs_comps)):
-            mcd_comp_area = integrate.trapezoid(abs(mcd_comp), x)
-            abs_comp_area = integrate.trapezoid(abs(abs_comp), x)
-            print(f"A/D values with index {i} in fit and names {name_mcd} {name_abs}: {mcd_comp_area / abs_comp_area}")
+        for i, ((name_mcd, _), (name_abs, _)) in enumerate(zip(mcd_comps, abs_comps)):
+            # amplitudes are stored in the fit parameters
+            mcd_amp = mcd_res.params[f"{name_mcd}amplitude"].value
+            abs_amp = abs_res.params[f"{name_abs}amplitude"].value
+
+            print(f"A/D or B/D values with index {i} in fit and names {name_mcd} {name_abs}: {np.abs(mcd_amp / abs_amp)}")
 
 def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
     model_list = [
