@@ -274,7 +274,6 @@ def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
         gaussianModels.model_stable_gaussian_deriv_sigma
     ]
 
-    app = QApplication(sys.argv)
     dlg = guessWindow(x, y_abs, y_mcd, fc)
     if dlg.exec() == QDialog.DialogCode.Accepted:  # blocks until user clicks
         peak_amplitudes, peak_centers, peak_sigmas = dlg.get_guess()
@@ -343,25 +342,19 @@ def fit_models(mcd_df, fc = None, processes = 4):
 
     percentage_range: +/- percent range around initial value for sigma, center, amplitude
     """
-    #fix for old data for our lab
-    if 'intensity_extinction' in mcd_df.columns:
-        mcd_df.rename(columns={'intensity_extinction': 'intensity'}, inplace=True)
 
     # Prepare the dataframe
     #TODO: check if field is used correctly
-    mcd_df['wavenumber'] = 1e7 / mcd_df['wavelength']
-    mcd_df['scaled_absorption'] = mcd_df['intensity'] / (mcd_df['wavenumber'] * 1.315 * 326.6)
-    mcd_df['scaled_MCD'] = mcd_df['R_signed'] / (mcd_df['wavenumber'] * 1.315 * 152.5)  # Is this even orientational averaging? I get reasonable values if I dont do the orientational averaging for MCD.
 
-    # Extract x and y values
-    wavenumbers = mcd_df['wavenumber'].values
-    scaled_absorption = mcd_df['scaled_absorption'].values
-    scaled_mcd = mcd_df['scaled_MCD'].values
+    # boltmans = 287893
+    #
+    #
 
-    mask = ~np.isnan(wavenumbers) & ~np.isnan(scaled_absorption) & ~np.isnan(scaled_mcd)
-    x = wavenumbers[mask]
-    y_abs = scaled_absorption[mask]
-    z_mcd = scaled_mcd[mask]
+    x = mcd_df["wavenumber_out"]
+    y_abs = mcd_df["uvvis_extinction_abs_molar-1cm-1_out"] / (mcd_df["wavenumber_out"] * 326.6)
+    #R_signed_extiction_per_tesla
+    z_mcd = mcd_df["deltaextinctionpertesla_mcdavg_molar-1cm-1T-1_out"] / (mcd_df["wavenumber_out"] * 152.5)  # Is this even orientational averaging? I get reasonable values if I dont do the orientational averaging for MCD.
+
 
     results = BfResult(x, y_abs, z_mcd)
     if fc is not None:
