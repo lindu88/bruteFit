@@ -9,6 +9,8 @@ from bruteFit.dataFitting import fit_models
 def main():
     # Can use it like this to set defaults and pass to fit_models, or just use pre-set default
     fc = FitConfig()
+    # NOTE we should probably explain this a bit more clearly. 
+     
     fc.MIN_GC = 1  # inclusive
     fc.MAX_GC = 6  # exclusive
 
@@ -16,6 +18,7 @@ def main():
     When window opens you can left click to remove peaks - you cannot add as I thought that was a bad design choice
     because we want to keep the data as reproducible as possible.
     """
+    # Sam NOTE - when we update params (update button) then the removed peaks get put back on screen. 
 
     mcd_df = utils.launch_proc_viewer()
     # results = fit_models(mcd_df)  # using pre-set defaults - 4 processes by default

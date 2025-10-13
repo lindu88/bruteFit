@@ -82,6 +82,7 @@ def launch_proc_viewer():
             tables_splitter.addWidget(full_wrap)
             tables_splitter.addWidget(clean_wrap)
             tables_splitter.setChildrenCollapsible(False)
+            # TODO explain/ fix magic numbers. 
             tables_splitter.setSizes([1_000_000, 1_000_000])
 
             # Plots splitter (unchanged)
@@ -139,8 +140,49 @@ def launch_proc_viewer():
                 field = float(self.field_spin.value())
 
                 # input + process
-                input_tuple = fh.read_pos_neg_abs()
-                self.proc = ProcessRecord(input_tuple, lims, pathlength, concentration, field)
+
+                # 1) Get file paths via Qt
+                paths, _ = QFileDialog.getOpenFileNames(
+                    self,
+                    "Select CSV files (pos/neg/abs; sticks optional)",
+                    filter="CSV Files (*.csv);;All Files (*)"
+                )
+                if not paths:
+                    return
+
+                # 2) Classify by filename
+                mapping = fh.guess_roles_from_filenames(paths)
+                for need in ("pos", "neg", "abs"):
+                    if need not in mapping:
+                        QMessageBox.critical(self, "Error", f"Missing required file: {need}")
+                        return
+
+                # 3) Your preferred explicit schemas
+                column_names = {
+                    "pos":    ["wavelength","x_pos","y_pos","R","theta","std_dev_x","std_dev_y","additional"],
+                    "neg":    ["wavelength","x_neg","y_neg","R","theta","std_dev_x","std_dev_y","additional"],
+                    "abs":    ["wavelength","intensity"],
+                    "sticks": ["wavelength","strength"],
+                }
+
+                # 4) Read with header=None and assign names
+                pos_df, neg_df, abs_df, sticks_df, ident = fh.read_pos_neg_abs_from_paths(
+                    mapping,
+                    column_names=column_names,
+                    assume_no_header=True,          # <-- important for unlabeled CSVs
+                    csv_reader=pd.read_csv          # you can pass a custom reader if needed
+                )
+
+                # 5) Build tuple and create ProcessRecord (note arg order conc, pathlength)
+                input_tuple = (pos_df, neg_df, abs_df, sticks_df, ident)
+                self.proc = ProcessRecord(input_tuple, lims, concentration, pathlength, field)
+
+                #input_tuple = (pos_df, neg_df, abs_df, sticks_df, ident)
+                # NOTE: ProcessRecord expects (concentration, pathlength)
+                #self.proc = ProcessRecord(input_tuple, lims, concentration, pathlength, field)
+                # SAM NOTE this is where LLM flags issue with passing pl first, conc second. Switching.
+                #self.proc = ProcessRecord(input_tuple, lims, pathlength, concentration, field)
+
 
                 # Full (pre-clean)
                 full_df = self.proc.get_merged_df()

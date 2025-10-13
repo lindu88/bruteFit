@@ -42,7 +42,7 @@ class BfResult:
         self.residual_rms_threshold = residual_rms_threshold
         self.bic_threshold = bic_threshold
 
-        #default weights for combo metric
+        #default weights for combo metric TODO expose this so we can tune. 
         self.bic_w = 0.25
         self.redchi_w = 0.5
         self.rms_w = 0.25
@@ -353,6 +353,7 @@ def fit_models(mcd_df, fc = None, processes = 4):
     x = mcd_df["wavenumber_out"]
     y_abs = mcd_df["uvvis_extinction_abs_molar-1cm-1_out"] / (mcd_df["wavenumber_out"] * 326.6)
     #R_signed_extiction_per_tesla
+    # SAM TODO check if we are properly accounting for field. 
     z_mcd = mcd_df["deltaextinctionpertesla_mcdavg_molar-1cm-1T-1_out"] / (mcd_df["wavenumber_out"] * 152.5)  # Is this even orientational averaging? I get reasonable values if I dont do the orientational averaging for MCD.
 
 

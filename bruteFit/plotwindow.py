@@ -79,6 +79,7 @@ class MainResultWindow(QMainWindow):
         add_metric_button("bic(MCD only sort)", "bic")
         add_metric_button("rms", "residual_rms")
         add_metric_button("combo", "combo")
+        # TODO check and make sure that these and other options from this page work. 
 
         # SpinBox for plot number
         btn_layout.addWidget(QLabel("Plot n #"))
