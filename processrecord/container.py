@@ -9,6 +9,7 @@ import pandas as pd
 
 class ProcessRecord:
     def __init__(self, input_tuple, lims, conc, pl, field):
+        #TODO there is a LLM flagged issue. This expects conc first, but the call passes pl first?
         mcd_pos, mcd_neg, abs, sticks, name = input_tuple
         self.mcd_pos = mcd_pos
         self.mcd_neg = mcd_neg
@@ -67,13 +68,13 @@ class ProcessRecord:
 
         #mcd theta
         self.dataInp["theta_mcdpos_radians_inp"].extend(self.mcd_pos["theta"].values)
-        self.dataInp["theta_mcdneg_radians_inp"].extend(self.mcd_pos["theta"].values)
+        self.dataInp["theta_mcdneg_radians_inp"].extend(self.mcd_neg["theta"].values)
 
         #std dev
         self.dataInp["stddevxcartesian_mcdpos_deltaabsorptivity_inp"].extend(self.mcd_pos["std_dev_x"].values)
         self.dataInp["stddevycartesian_mcdpos_deltaabsorptivity_inp"].extend(self.mcd_pos["std_dev_y"].values)
-        self.dataInp["stddevxcartesian_mcdneg_deltaabsorptivity_inp"].extend(self.mcd_pos["std_dev_x"].values)
-        self.dataInp["stddevycartesian_mcdneg_deltaabsorptivity_inp"].extend(self.mcd_pos["std_dev_y"].values)
+        self.dataInp["stddevxcartesian_mcdneg_deltaabsorptivity_inp"].extend(self.mcd_neg["std_dev_x"].values)
+        self.dataInp["stddevycartesian_mcdneg_deltaabsorptivity_inp"].extend(self.mcd_neg["std_dev_y"].values)
 
 
 

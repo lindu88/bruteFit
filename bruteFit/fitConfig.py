@@ -2,14 +2,18 @@ from dataclasses import dataclass, asdict
 
 @dataclass
 class FitConfig:
+
+    #TODO tune these parameters by optimizing over a large set of (representative) synthetic (and real?) data. 
+    # estimate the amount of datapoints needed given the amount of params.
+
     # Smoothing
-    WINDOW_LENGTH: int = 5  # Window length for Savitzky-Golay smoothing (datapoints?) (relate to bandwidth?)
+    WINDOW_LENGTH: int = 5  # Window length for Savitzky-Golay smoothing (in samples/ datapoints?) (relate to bandwidth?)
     POLYORDER: int = 4  # Polynomial order for Savitzky-Golay smoothing
 
     # Peak picking
     HEIGHT_THRESHOLD: float = 0.04  # Minimum height threshold for peak detection
-    PROMINENCE_PERECENT: float = 0.04  # Prominence as a multiple of max height
-    DISTANCE: int = 5  # Minimum distance (in samples) between peaks
+    PROMINENCE_PERECENT: float = 0.04  # (topological) Prominence as a multiple of max height
+    DISTANCE: int = 5  # Minimum distance (in samples/points) between peaks
 
     # Fitting
     MERGE_DX: int = 500  # Distance to merge centers between abs and mcd
@@ -20,10 +24,10 @@ class FitConfig:
     ESTIMATE_SIGMA_ITERATIONS_START: int = 4
     MIN_ABSOLUTE_PEAK_HEIGHT: float = 2.0e-15
     MIN_PROMINENCE: float = 1e-18  # Min relative peak height
-    AMPLITUDE_SCALE_LIMIT: float = 3.0
+    AMPLITUDE_SCALE_LIMIT: float = 3.0 # TODO what is this? 
 
-    MAX_GC: int = 6
-    MIN_GC: int = 2
+    MAX_GC: int = 6 #Max number of gaussian curves (or derivatives) accepted
+    MIN_GC: int = 2 #minimum number of gaussians.
 
     DELTA_CTR: float = 10
 
