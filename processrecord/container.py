@@ -117,21 +117,26 @@ class ProcessRecord:
         self.mergedOut = df_clean
 
     def save(self, path: str = ""):
-        filename = f"{self.name}_output.csv"
-        if path:
-            path = os.path.expanduser(path)
-            path = os.path.normpath(path)
+        filename = f"{self.name}_processed.csv"
 
-        # Check validity and create if necessary
+        # Determine base directory
         if path and os.path.isdir(path):
-            save_path = os.path.join(path, filename)
+            base_path = os.path.join(path, filename)
             print(f"Saving {filename} to path: {os.path.abspath(path)}")
         else:
             print("Path invalid or not given. Saving in current working directory.")
-            save_path = os.path.join(os.getcwd(), filename)
+            base_path = os.path.join(os.getcwd(), filename)
 
-        # Perform the save
-        self.mergedOut.to_csv(save_path, index=False)
+        # Append _1, _2, etc. if file exists
+        save_path = base_path
+        root, ext = os.path.splitext(base_path)
+        counter = 1
+        while os.path.exists(save_path):
+            save_path = f"{root}_{counter}{ext}"
+            counter += 1
+
+        # Save file
+        self.mergedOut.to_csv(save_path, index=False, mode='x')
         print(f"Saved: {save_path}")
 
 
