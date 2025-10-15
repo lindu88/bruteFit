@@ -69,6 +69,10 @@ def launch_proc_viewer():
             top_row.addWidget(self.run_btn)
             top_row.addWidget(self.save_continue_btn)
 
+            self.load_processed_btn = QPushButton("Load Processed")
+            self.load_processed_btn.clicked.connect(self.load_processed)
+            top_row.addWidget(self.load_processed_btn)
+
             # Tables splitter (unchanged)
             self.full_model = PandasModel()
             self.clean_model = PandasModel()
@@ -131,6 +135,89 @@ def launch_proc_viewer():
             setattr(self, keep_attr, new_canvas)
             holder_layout.addWidget(new_canvas)
             new_canvas.draw_idle()
+
+        def load_processed(self):
+            import pandas as pd
+            from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+            def safe_float(x, default=0.0):
+                try:
+                    if pd.isna(x): return default
+                    return float(x)
+                except Exception:
+                    return default
+
+            try:
+                path, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "Select processed CSV (mergedOut)",
+                    filter="CSV Files (*.csv);;All Files (*)"
+                )
+                if not path:
+                    return
+
+                df = pd.read_csv(path)
+                if df is None or df.empty or not isinstance(df, pd.DataFrame):
+                    QMessageBox.warning(self, "Warning", f"{path} is empty or invalid.")
+                    return
+
+                # ---- pull metadata from last row (fallbacks ok) ----
+                last = df.iloc[-1] if len(df) else {}
+                lims = str(getattr(last, "lims_ID", getattr(df, "lims_ID", "loaded_lims"))) if isinstance(last,
+                                                                                                          pd.Series) else "loaded_lims"
+                name = str(getattr(last, "name", "processed_import")) if isinstance(last,
+                                                                                    pd.Series) else "processed_import"
+                concentration = safe_float(getattr(last, "concentration_MOL_L", 0.0))
+                pathlength = safe_float(getattr(last, "pathlength_cm", 0.0))
+                field = safe_float(getattr(last, "field_B", 0.0))
+
+                # ---- reflect into GUI ----
+                self.lims_edit.setText(lims)
+                self.conc_spin.setValue(concentration)
+                self.pathlength_spin.setValue(pathlength)
+                self.field_spin.setValue(field)
+
+                # ---- construct EMPTY dfs with expected schema (avoid NoneType in __init__) ----
+                pos_cols = ["wavelength", "x_pos", "y_pos", "R", "theta", "std_dev_x", "std_dev_y", "additional"]
+                neg_cols = ["wavelength", "x_neg", "y_neg", "R", "theta", "std_dev_x", "std_dev_y", "additional"]
+                abs_cols = ["wavelength", "intensity"]
+                stk_cols = ["wavelength", "strength"]
+
+                empty_pos = pd.DataFrame(columns=pos_cols)
+                empty_neg = pd.DataFrame(columns=neg_cols)
+                empty_abs = pd.DataFrame(columns=abs_cols)
+                empty_stk = pd.DataFrame(columns=stk_cols)
+
+                input_tuple = (empty_pos, empty_neg, empty_abs, empty_stk, name)
+
+                # ctor order: (input_tuple, lims, conc, pl, field)
+                self.proc = ProcessRecord(input_tuple, lims, concentration, pathlength, field)
+
+                # now inject the real processed df
+                if hasattr(self.proc, "set_merged_df"):
+                    self.proc.set_merged_df(df)
+                else:
+                    QMessageBox.critical(self, "Error", "ProcessRecord.set_merged_df() not found.")
+                    return
+
+                # ---- tables ----
+                self.full_model.set_df(df)
+                self.clean_model.set_df(df)
+                self._result_df = df
+
+                # ---- plots ----
+                if hasattr(self.proc, "plot_extinction"):
+                    fig_pre, _ = self.proc.plot_extinction(return_fig=True)
+                    self._set_canvas_in(self.pre_plot_holder, FigureCanvas(fig_pre), "pre_canvas")
+                    fig_post, _ = self.proc.plot_extinction(return_fig=True)
+                    self._set_canvas_in(self.post_plot_holder, FigureCanvas(fig_post), "post_canvas")
+
+                QMessageBox.information(self, "Loaded", f"Processed file loaded for LIMS '{lims}'.")
+
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                QMessageBox.critical(self, "Error", f"{type(e).__name__}: {e}")
 
         def run_pipeline(self):
             try:
