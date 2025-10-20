@@ -7,7 +7,7 @@ class FitConfig:
     # estimate the amount of datapoints needed given the amount of params.
 
     # Smoothing
-    WINDOW_LENGTH: int = 5  # Window length for Savitzky-Golay smoothing (in samples/ datapoints?) (relate to bandwidth?)
+    WINDOW_LENGTH: int = 5  # Window length for Savitzky-Golay smoothing (in samples/ datapoints?)
     POLYORDER: int = 4  # Polynomial order for Savitzky-Golay smoothing
 
     # Peak picking
@@ -24,12 +24,12 @@ class FitConfig:
     ESTIMATE_SIGMA_ITERATIONS_START: int = 4
     MIN_ABSOLUTE_PEAK_HEIGHT: float = 2.0e-15
     MIN_PROMINENCE: float = 1e-18  # Min relative peak height
-    AMPLITUDE_SCALE_LIMIT: float = 3.0 # TODO what is this? 
+    AMPLITUDE_SCALE_LIMIT: float = 3.0 # TODO what is this? TODO implement
 
     MAX_GC: int = 6 #Max number of gaussian curves (or derivatives) accepted
     MIN_GC: int = 2 #minimum number of gaussians.
 
-    DELTA_CTR: float = 10
+    DELTA_CTR: float = 10 # difference between the abs and mcd centers in sample space. 
 
     def to_string(self) -> str:
         """Return a formatted string representation of the config."""
