@@ -4,7 +4,7 @@ from math import comb
 import numpy as np
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QMainWindow, QScrollArea, QSizePolicy
+    QMainWindow, QScrollArea, QSizePolicy, QLineEdit, QCheckBox
 )
 import matplotlib
 from scipy.signal import peak_prominences, savgol_filter, find_peaks
@@ -212,52 +212,60 @@ class guessWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("peak confirmation")
 
+        self.pa_inp_list = []
+
         # keep references
         self.x = np.asarray(x, dtype=float)
         self.y_abs = np.asarray(y_abs, dtype=float)
         self.y_mcd = np.asarray(y_mcd, dtype=float)
-
         self.fc = fc
 
         self.resize(1400, 700)
 
-        # ----- Main layout
         layout = QVBoxLayout(self)
-
         upper_row = QHBoxLayout()
         layout.addLayout(upper_row)
 
-        # Plot area (toolbar + canvas go here)
         self._plot_area = QVBoxLayout()
         upper_row.addLayout(self._plot_area, 3)
 
-        # FitConfig editor area
         self._editor_group = QGroupBox("FitConfig")
         self._form = QFormLayout(self._editor_group)
         upper_row.addWidget(self._editor_group, 2)
 
-        # Build the editor from your fc
         self._fc_widgets: Dict[str, QWidget] = {}
         self._build_fc_editor()
 
-        # Update button (applies editor values -> fc, then redraws)
+        # --- Add pc, pa, ps input row ---
+        row = QHBoxLayout()
+        self._pc = QLineEdit(); self._pc.setPlaceholderText("pc")
+        self._pa = QLineEdit(); self._pa.setPlaceholderText("pa")
+        self._ps = QLineEdit(); self._ps.setPlaceholderText("ps")
+        btn = QPushButton("Input")
+        btn.clicked.connect(self._add_pa_input)
+        for w in (self._pc, self._pa, self._ps, btn):
+            row.addWidget(w)
+        self._form.addRow("pc, pa, ps:", row)
+
+        # --- merge_user_input checkbox (NEW) ---
+        self._merge_cb = QCheckBox("merge user input")
+        self._merge_cb.setChecked(False)
+        self._form.addRow(self._merge_cb)
+
+        # Update button
         self._btn_update = QPushButton("Update")
         self._btn_update.clicked.connect(self._on_update_clicked)
         self._form.addRow(self._btn_update)
 
-        # ----- Yes/No at the bottom (confirmation)
+        # Yes/No bottom buttons
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No
         )
-        buttons.accepted.connect(self.accept)   # Yes
-        buttons.rejected.connect(self.reject)   # No
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        # Initial render — do it after the dialog is constructed, so any heavy work
-        # doesn’t block showing the window.
         QTimer.singleShot(0, self.update)
-
-    # --------------- Plot helpers ---------------
 
     def get_peak_centers_fig(self, peak_centers) -> Figure:
         y_at_centers = np.interp(peak_centers, self.x, self.y_mcd)
@@ -297,6 +305,18 @@ class guessWindow(QDialog):
         fig.tight_layout()
         return fig
 
+    def _add_pa_input(self):
+        try:
+            pc = float(self._pc.text().strip())
+            pa = float(self._pa.text().strip())
+            ps = float(self._ps.text().strip())
+        except ValueError:
+            return
+        self.pa_inp_list.append((pc, pa, ps))
+        self._pc.clear()
+        self._pa.clear()
+        self._ps.clear()
+
     def _set_figure_in_ui(self, fig: Figure) -> None:
         """Embed a Matplotlib Figure into the left pane."""
         # remove previous widgets if any
@@ -318,7 +338,20 @@ class guessWindow(QDialog):
 
 
     def update(self):
-        pa, pc, ps = self._guess_on_all_data(self.x, self.y_abs, self.y_mcd)
+        if self._merge_cb.isChecked():
+            pci, pai, psi = zip(*self.pa_inp_list)
+            pci, pai, psi = list(pci), list(pai), list(psi)
+
+            pa, pc, ps = self._guess_on_all_data(self.x, self.y_abs, self.y_mcd)
+            pa.extend(pai)
+            pc.extend(pci)
+            ps.extend(psi)
+        elif not self._merge_cb.isChecked():
+            if len(self.pa_inp_list) > 0:
+                pc, pa, ps = zip(*self.pa_inp_list)
+                pc, pa, ps = list(pc), list(pa), list(ps)
+            else:
+                pa, pc, ps = self._guess_on_all_data(self.x, self.y_abs, self.y_mcd)
 
         # Build and embed the figure
         fig = self.get_peak_centers_fig(pc)

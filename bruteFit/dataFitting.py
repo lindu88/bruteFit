@@ -456,12 +456,11 @@ def fit_worker(name, x, z_mcd, y_abs, fc, model_param_pairs):
 
         # --- Set bounds for MCD parameters ---
         for p_name, p in params_mcd.items():
-            delta = abs(p.value) * (fc.PERCENTAGE_RANGE / 100.0)
+            delta_sig = fc.DELTA_SIGMA
             delta_ctr = fc.DELTA_CTR
 
             if p_name.endswith('sigma'):
-                min_sigma = max(1e-12, 0.1 * abs(p.value))
-                p.set(min=min_sigma, max=p.value + delta, vary=True)
+                p.set(min=p.value - delta_sig, max=p.value + delta_sig, vary=True)
 
             elif p_name.endswith('center'):
                 p.set(min=p.value - delta_ctr, max=p.value + delta_ctr, vary=True)
@@ -474,12 +473,11 @@ def fit_worker(name, x, z_mcd, y_abs, fc, model_param_pairs):
 
         # --- Set bounds for ABS parameters ---
         for p_name, p in params_abs.items():
-            delta = abs(p.value) * (fc.PERCENTAGE_RANGE / 100.0)
+            delta_sig = fc.DELTA_SIGMA
             delta_ctr = fc.DELTA_CTR
 
             if p_name.endswith('sigma'):
-                min_sigma = max(1e-12, 0.1 * abs(p.value))
-                p.set(min=min_sigma, max=p.value + delta, vary=True)
+                p.set(min=p.value - delta_sig, max=p.value + delta_sig, vary=True)
 
             elif p_name.endswith('center'):
                 p.set(min=p.value - delta_ctr, max=p.value + delta_ctr, vary=True)

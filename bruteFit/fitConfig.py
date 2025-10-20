@@ -30,6 +30,8 @@ class FitConfig:
     MIN_GC: int = 2 #minimum number of gaussians.
 
     DELTA_CTR: float = 10 # difference between the abs and mcd centers in sample space. 
+    DELTA_CTR: float = 10
+    DELTA_SIGMA: float = 10
 
     def to_string(self) -> str:
         """Return a formatted string representation of the config."""
