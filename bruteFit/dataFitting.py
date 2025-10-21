@@ -489,8 +489,8 @@ def fit_worker(name, x, z_mcd, y_abs, fc, model_param_pairs):
                 p.set(min=0.0, max=allowed_amp, vary=True)  # ABS is positive
 
         try:
-            res_mcd = model_mcd.fit(z_mcd, params_mcd, x=x)
-            res_abs = model_abs.fit(y_abs, params_abs, x=x)
+            res_mcd = model_mcd.fit(np.float32(z_mcd), params_mcd, x=np.float32(x))
+            res_abs = model_abs.fit(np.float32(y_abs), params_abs, x=np.float32(x))
 
             count += 1
             print(f"Process {name}: fit {count} of {total}")
