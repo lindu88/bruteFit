@@ -2,9 +2,10 @@ import sys
 from math import comb
 
 import numpy as np
+from PySide6 import QtGui
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QMainWindow, QScrollArea, QSizePolicy, QLineEdit, QCheckBox
+    QMainWindow, QScrollArea, QSizePolicy, QLineEdit, QCheckBox, QFileDialog
 )
 import matplotlib
 from scipy.signal import peak_prominences, savgol_filter, find_peaks
@@ -257,6 +258,11 @@ class guessWindow(QDialog):
         self._btn_update.clicked.connect(self._on_update_clicked)
         self._form.addRow(self._btn_update)
 
+        # file button for comp data
+        self._btn_load = QPushButton("open comp data")
+        self._btn_load.clicked.connect(self._peak_file_open)
+        self._form.addRow(self._btn_load)
+
         # Yes/No bottom buttons
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No
@@ -460,6 +466,17 @@ class guessWindow(QDialog):
         # Embed it in the UI using the helper
         self._set_figure_in_ui(fig)
 
+    def _peak_file_open(self):
+        name, _ = QFileDialog.getOpenFileName(self, 'Open File')
+        file = open(name, 'r')
+        with file:
+            peaks = file.readlines()
+            for row in peaks:
+                peak_values = []
+                for peak_value in row.split():
+                    peak_values.append(float(peak_value.split("=")[1]))
+                self.pa_inp_list.append((peak_values[0], peak_values[1], peak_values[2]))
+            self.update()
     @staticmethod
     def _get_anymax_factor(ratio):
         if (ratio >= 1):  # return FWHM if ratio is invalid
