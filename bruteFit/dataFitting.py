@@ -1,9 +1,11 @@
 import math
 import sys
 import time
+from copy import deepcopy
 
 import scipy.integrate as integrate
 from PySide6.QtWidgets import QApplication, QDialog
+from lmfit import Parameters
 from scipy.signal import find_peaks, savgol_filter, peak_prominences
 from . import gaussianModels
 from . import plotwindow
@@ -20,6 +22,11 @@ from . import fitConfig
 from .fitConfig import FitConfig
 from .gaussianModels import stable_gaussian_sigma
 from .plotwindow import MatplotlibGallery, guessWindow, MainResultWindow
+
+from . import norms as norms
+
+#for now can change norm here
+Norm = norms.MaxNorm(None)
 
 
 #TODO: Docs and use pyside6 for parameters
@@ -309,13 +316,9 @@ def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
             # Unpack into (pa, pc, ps)
             #TODO: maybe change prefix
             for i, ((pa, pc, ps), base_model) in enumerate(zip(subset, model_choices)):
-                if base_model == gaussianModels.model_stable_gaussian_deriv_sigma:
-                    prefix = f"A{i}_"
-                else:  # gaussianModels.model_stable_gaussian_sigma
-                    prefix = f"B{i}_"
-                m_mcd = Model(base_model.func, prefix=prefix)
+                m_mcd = Model(base_model.func, prefix=f"MCDG{i}_")
                 #abs only gaussian
-                m_abs = Model(stable_gaussian_sigma, prefix=f"B{i}")
+                m_abs = Model(stable_gaussian_sigma, prefix=f"ABSG{i}_")
 
                 if composite_mcd_model is None:
                     composite_mcd_model = m_mcd
@@ -356,6 +359,10 @@ def fit_models(mcd_df, fc = None, processes = 4):
     # SAM TODO check if we are properly accounting for field. 
     z_mcd = mcd_df["deltaextinctionpertesla_mcdavg_molar-1cm-1T-1_out"] / (mcd_df["wavenumber_out"] * 152.5)  # Is this even orientational averaging? I get reasonable values if I dont do the orientational averaging for MCD.
 
+    #norm data
+    Norm.set_y(y_abs)
+    z_mcd = Norm.norm(z_mcd)
+    y_abs = Norm.norm(y_abs)
 
     results = BfResult(x, y_abs, z_mcd)
     if fc is not None:
@@ -489,12 +496,44 @@ def fit_worker(name, x, z_mcd, y_abs, fc, model_param_pairs):
                 p.set(min=0.0, max=allowed_amp, vary=True)  # ABS is positive
 
         try:
-            res_mcd = model_mcd.fit(z_mcd, params_mcd, x=x)
-            res_abs = model_abs.fit(y_abs, params_abs, x=x)
+
+            #here we add bound params
+            params = Parameters()
+            params.update(params_abs)
+            params.update(params_mcd)
+
+            """
+            print("=== ABS Parameters ===")
+            for name, par in params_abs.items():
+                print(f"{name:25s} = {par.value:.6g}  (min={par.min:.3g}, max={par.max:.3g}, vary={par.vary})")
+
+            print("\n=== MCD Parameters ===")
+            for name, par in params_mcd.items():
+                print(f"{name:25s} = {par.value:.6g}  (min={par.min:.3g}, max={par.max:.3g}, vary={par.vary})")
+            """
+
+            #len of abs or len of mcd models both are the same length
+            #bound
+            for i in range(0, len(model_mcd.components)):
+                params[f'MCDG{i}_center'].expr = f'ABSG{i}_center'
+                params[f'MCDG{i}_sigma'].expr = f'ABSG{i}_sigma'
+
+
+            def inverse_model_result(result, normer):
+                res_inv = deepcopy(result)
+                res_inv.data = normer.inv(result.data)
+                res_inv.best_fit = normer.inv(result.best_fit)
+                res_inv.residual = res_inv.data - res_inv.best_fit
+                if hasattr(result, 'init_fit'):
+                    res_inv.init_fit = normer.inv(result.init_fit)
+                return res_inv
+
+            res_mcd = model_mcd.fit(z_mcd, params=params, x=x)
+            res_abs = model_abs.fit(y_abs, params=params, x=x)
 
             count += 1
             print(f"Process {name}: fit {count} of {total}")
-            out.append((res_mcd, res_abs))
+            out.append((inverse_model_result(res_mcd, Norm), inverse_model_result(res_abs, Norm)))
 
         except Exception as e:
             print(f"Exception raised while fitting: {e}\n")
