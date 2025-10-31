@@ -545,6 +545,12 @@ def fit_worker(name, x, z_mcd, y_abs, fc, model_param_pairs):
             best_pars_abs = joint_result.params.copy()
             best_pars_mcd = joint_result.params.copy()
 
+            #cant change on refit to seperate models
+            for par in best_pars_abs.values():
+                par.vary = False
+            for par in best_pars_mcd.values():
+                par.vary = False
+
             res_abs = model_abs.fit(y_abs, x=x, params=best_pars_abs)
             res_mcd = model_mcd.fit(z_mcd, x=x, params=best_pars_mcd)
 
