@@ -5,7 +5,7 @@ from copy import deepcopy
 
 import scipy.integrate as integrate
 from PySide6.QtWidgets import QApplication, QDialog
-from lmfit import Parameters
+from lmfit import Parameters, Minimizer
 from scipy.signal import find_peaks, savgol_filter, peak_prominences
 from . import gaussianModels
 from . import plotwindow
@@ -513,12 +513,13 @@ def fit_worker(name, x, z_mcd, y_abs, fc, model_param_pairs):
             """
 
             #len of abs or len of mcd models both are the same length
-            #bound
+            #bound params
             for i in range(0, len(model_mcd.components)):
                 params[f'MCDG{i}_center'].expr = f'ABSG{i}_center'
                 params[f'MCDG{i}_sigma'].expr = f'ABSG{i}_sigma'
 
 
+            #just makes a model result with the norm inv
             def inverse_model_result(result, normer):
                 res_inv = deepcopy(result)
                 res_inv.data = normer.inv(result.data)
@@ -528,8 +529,24 @@ def fit_worker(name, x, z_mcd, y_abs, fc, model_param_pairs):
                     res_inv.init_fit = normer.inv(result.init_fit)
                 return res_inv
 
-            res_mcd = model_mcd.fit(z_mcd, params=params, x=x)
-            res_abs = model_abs.fit(y_abs, params=params, x=x)
+            #Joint objective: concatenate residuals
+            def objective(pars):
+                yhat_abs = model_abs.eval(params=pars, x=x)
+                yhat_mcd = model_mcd.eval(params=pars, x=x)
+                r_abs = yhat_abs - y_abs
+                r_mcd = yhat_mcd - z_mcd
+                return np.concatenate([r_abs, r_mcd])
+
+            # Co-optimize on the joint
+            mini = Minimizer(objective, params)
+            joint_result = mini.minimize()
+
+            #Turn it back into two separate ModelResults (using the co-optimized params)
+            best_pars_abs = joint_result.params.copy()
+            best_pars_mcd = joint_result.params.copy()
+
+            res_abs = model_abs.fit(y_abs, x=x, params=best_pars_abs)
+            res_mcd = model_mcd.fit(z_mcd, x=x, params=best_pars_mcd)
 
             count += 1
             print(f"Process {name}: fit {count} of {total}")
