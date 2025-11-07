@@ -336,10 +336,10 @@ def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
                     params_abs.update(m_abs.make_params(amplitude=pa, center=pc, sigma=ps))
 
             all_models.append(((composite_mcd_model, params_mcd),(composite_abs_model, params_abs)))
-    return all_models, fc
+    return all_models, fc, dlg.get_use_coop()
 
 
-def fit_models(mcd_df, fc = None, processes = 4):
+def fit_models(mcd_df, fc = None, processes = 4, use_coop = False):
     """
     Fit all brute-force-generated models to the data in df.
 
@@ -366,9 +366,9 @@ def fit_models(mcd_df, fc = None, processes = 4):
 
     results = BfResult(x, y_abs, z_mcd)
     if fc is not None:
-        model_param_pairs, fc = brute_force_models(x, y_abs, z_mcd, fc)
+        model_param_pairs, fc, coop = brute_force_models(x, y_abs, z_mcd, fc)
     else:
-        model_param_pairs, fc = brute_force_models(x, y_abs, z_mcd)
+        model_param_pairs, fc, coop = brute_force_models(x, y_abs, z_mcd)
 
     ##########################################################################################
     def split_into_n(seq, n):
@@ -392,8 +392,11 @@ def fit_models(mcd_df, fc = None, processes = 4):
     #just to know how long the fitting took
     start = time.perf_counter()  # Start timer
 
-    results_lists = Parallel(n_jobs=processes, backend="loky")(
-        delayed(fit_worker)(f"Worker-{i + 1}", x, z_mcd, y_abs, fc, chunk) for i, chunk in enumerate(chunks))
+    results_lists = None
+    if use_coop:
+        results_lists = Parallel(n_jobs=processes, backend="loky")(delayed(fit_worker_old)(f"Worker-{i + 1}", x, z_mcd, y_abs, fc, chunk) for i, chunk in enumerate(chunks))
+    else:
+        results_lists = Parallel(n_jobs=processes, backend="loky")(delayed(fit_worker)(f"Worker-{i + 1}", x, z_mcd, y_abs, fc, chunk) for i, chunk in enumerate(chunks))
 
 
     # Loop through each list of results returned from each worker
@@ -417,7 +420,8 @@ def fit_models(mcd_df, fc = None, processes = 4):
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
 
-    win = MainResultWindow(bfResult=results)
+    #TODO: need to clean up the FC call
+    win = MainResultWindow(bfResult=results, df_fc=(mcd_df, fc, coop))
     win.show()
 
     app.exec()
@@ -545,7 +549,7 @@ def fit_worker(name, x, z_mcd, y_abs, fc, model_param_pairs):
             best_pars_abs = joint_result.params.copy()
             best_pars_mcd = joint_result.params.copy()
 
-            #cant change on refit to seperate models
+            #cant change on refit to separate models
             for par in best_pars_abs.values():
                 par.vary = False
             for par in best_pars_mcd.values():
@@ -557,6 +561,91 @@ def fit_worker(name, x, z_mcd, y_abs, fc, model_param_pairs):
             count += 1
             print(f"Process {name}: fit {count} of {total}")
             out.append((inverse_model_result(res_mcd, Norm), inverse_model_result(res_abs, Norm)))
+
+        except Exception as e:
+            print(f"Exception raised while fitting: {e}\n")
+            continue
+
+    return out
+
+def fit_worker_old(name, x, z_mcd, y_abs, fc, model_param_pairs):
+    count = 0
+    total = len(model_param_pairs)
+
+    out = []
+
+    for ((model_mcd, params_mcd), (model_abs, params_abs)) in model_param_pairs:
+        # Largest absolute value in the measured MCD/ABS data (used for scaling)
+        max_data_value_mcd = float(np.nanmax(np.abs(z_mcd)) or 1e-12)
+        max_data_value_abs = float(np.nanmax(np.abs(y_abs)) or 1e-12)
+
+        # --- MCD Component Scaling ---
+        component_unit_max_mcd = {}
+        for param_name in params_mcd:
+            if param_name.endswith('amplitude'):
+                prefix = param_name[:-len('amplitude')]
+                temp_params = params_mcd.copy()
+                temp_params[param_name].set(value=1.0)
+
+                components = model_mcd.eval_components(x=x, params=temp_params)
+                comp_data = components.get(prefix)
+
+                component_unit_max_mcd[prefix] = float(np.nanmax(np.abs(comp_data))) or 1e-12
+
+        # --- ABS Component Scaling ---
+        component_unit_max_abs = {}
+        for param_name in params_abs:
+            if param_name.endswith('amplitude'):
+                prefix = param_name[:-len('amplitude')]
+                temp_params = params_abs.copy()
+                temp_params[param_name].set(value=1.0)
+
+                components = model_abs.eval_components(x=x, params=temp_params)
+                comp_data = components.get(prefix)
+
+                component_unit_max_abs[prefix] = float(np.nanmax(np.abs(comp_data))) or 1e-12
+
+        # --- Set bounds for MCD parameters ---
+        for p_name, p in params_mcd.items():
+            delta_sig = fc.DELTA_SIGMA
+            delta_ctr = fc.DELTA_CTR
+
+            if p_name.endswith('sigma'):
+                p.set(min=p.value - delta_sig, max=p.value + delta_sig, vary=True)
+
+            elif p_name.endswith('center'):
+                p.set(min=p.value - delta_ctr, max=p.value + delta_ctr, vary=True)
+
+            elif p_name.endswith('amplitude'):
+                prefix = p_name[:-len('amplitude')]
+                unit_max = component_unit_max_mcd.get(prefix, 1e-12)
+                allowed_amp = fc.AMPLITUDE_SCALE_LIMIT * (max_data_value_mcd / unit_max)
+                p.set(min=-allowed_amp, max=allowed_amp, vary=True)
+
+        # --- Set bounds for ABS parameters ---
+        for p_name, p in params_abs.items():
+            delta_sig = fc.DELTA_SIGMA
+            delta_ctr = fc.DELTA_CTR
+
+            if p_name.endswith('sigma'):
+                p.set(min=p.value - delta_sig, max=p.value + delta_sig, vary=True)
+
+            elif p_name.endswith('center'):
+                p.set(min=p.value - delta_ctr, max=p.value + delta_ctr, vary=True)
+
+            elif p_name.endswith('amplitude'):
+                prefix = p_name[:-len('amplitude')]
+                unit_max = component_unit_max_abs.get(prefix, 1e-12)
+                allowed_amp = fc.AMPLITUDE_SCALE_LIMIT * (max_data_value_abs / unit_max)
+                p.set(min=0.0, max=allowed_amp, vary=True)  # ABS is positive
+
+        try:
+            res_abs = model_abs.fit(y_abs, x=x, params=params_mcd)
+            res_mcd = model_mcd.fit(z_mcd, x=x, params=params_abs)
+
+            count += 1
+            print(f"Process {name}: fit {count} of {total}")
+            out.append((res_mcd,res_abs))
 
         except Exception as e:
             print(f"Exception raised while fitting: {e}\n")

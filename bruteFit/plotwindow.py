@@ -5,7 +5,7 @@ import numpy as np
 from PySide6 import QtGui
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QMainWindow, QScrollArea, QSizePolicy, QLineEdit, QCheckBox, QFileDialog
+    QMainWindow, QScrollArea, QSizePolicy, QLineEdit, QCheckBox, QFileDialog, QApplication
 )
 import matplotlib
 from scipy.signal import peak_prominences, savgol_filter, find_peaks
@@ -28,14 +28,18 @@ from matplotlib.backends.backend_qtagg import (
 )
 from . import fitConfig as configContainer
 
+from . import dataFitting as daf
+
 matplotlib.use("QtAgg")
 class MainResultWindow(QMainWindow):
-    def __init__(self, bfResult=None):
+    def __init__(self, bfResult=None, df_fc = None):
         super().__init__()
         self.plot_n = 10
         self.bfResult = bfResult
         self.setWindowTitle("BF Results")
         self.resize(1100, 700)
+
+        self.df_fc = df_fc
 
         # ---- Central widget for QMainWindow ----
         central = QWidget(self)
@@ -151,7 +155,16 @@ class MainResultWindow(QMainWindow):
         self.spin_max_amp.setValue(3000)
         btn_layout.addWidget(self.spin_max_amp)
 
+        #back button
+        reset_btn = QPushButton("Reset")
+        reset_btn.clicked.connect(self.reset)
+        btn_layout.addWidget(reset_btn)
 
+
+    def reset(self):
+        mcd_df, fc, coop = self.df_fc
+        self.close()
+        daf.fit_models(mcd_df, fc, processes=4, use_coop=coop)
 
 class MatplotlibGallery(QWidget):
     def __init__(self, figures=None, parent=None):
@@ -215,6 +228,8 @@ class guessWindow(QDialog):
 
         self.pa_inp_list = []
 
+        self.use_coop = False  # class-level variable to store toggle state
+
         # keep references
         self.x = np.asarray(x, dtype=float)
         self.y_abs = np.asarray(y_abs, dtype=float)
@@ -258,6 +273,14 @@ class guessWindow(QDialog):
         self._btn_update.clicked.connect(self._on_update_clicked)
         self._form.addRow(self._btn_update)
 
+        # use coop button (toggle)
+        self._btn_coop = QPushButton("Use Coop")
+        self._btn_coop.setCheckable(True)
+        self._btn_coop.setChecked(self.use_coop)
+        self._btn_coop.toggled.connect(self._on_coop_toggled)
+        self._form.addRow(self._btn_coop)
+
+
         # file button for comp data
         self._btn_load = QPushButton("open comp data")
         self._btn_load.clicked.connect(self._peak_file_open)
@@ -273,6 +296,10 @@ class guessWindow(QDialog):
 
         QTimer.singleShot(0, self.update)
 
+    def _on_coop_toggled(self, checked: bool):
+        self.use_coop = checked
+    def get_use_coop(self) -> bool:
+        return self.use_coop
     def get_peak_centers_fig(self, peak_centers) -> Figure:
         y_at_centers = np.interp(peak_centers, self.x, self.y_mcd)
 
@@ -342,6 +369,14 @@ class guessWindow(QDialog):
 
         canvas.draw_idle()
 
+    def get_peaks(self):
+        return self.fc, self._pc, self._pa, self._ps, self.pa_inp_list
+    def set_peaks(self,fc, pc, pa, ps, pa_inp_list):
+        self.fc = fc
+        self._pc = pc
+        self._pa = pa
+        self._ps = ps
+        self._pa_inp_list = pa_inp_list
 
     def update(self):
         if self._merge_cb.isChecked():

@@ -22,7 +22,7 @@ def main():
 
     mcd_df = utils.launch_proc_viewer()
     # results = fit_models(mcd_df)  # using pre-set defaults - 4 processes by default
-    fit_models(mcd_df, fc, processes=mp.cpu_count())
+    fit_models(mcd_df, fc, processes=mp.cpu_count(), use_coop=False)
 
 #when multiprocessing on windows and generally - need name guard
 if __name__ == "__main__":
