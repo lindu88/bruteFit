@@ -9,7 +9,6 @@ import pandas as pd
 
 class ProcessRecord:
     def __init__(self, input_tuple, lims, conc, pl, field):
-        #TODO there is a LLM flagged issue. This expects conc first, but the call passes pl first?
         mcd_pos, mcd_neg, abs, sticks, name = input_tuple
         self.mcd_pos = mcd_pos
         self.mcd_neg = mcd_neg

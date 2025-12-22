@@ -1,3 +1,8 @@
+import os
+
+from bruteFit.fitConfig import FitConfig
+
+
 def launch_proc_viewer():
     """
     Full-screen GUI:
@@ -18,29 +23,37 @@ def launch_proc_viewer():
     from PySide6.QtCore import Qt, QAbstractTableModel
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 
-    # your packages (unchanged)
     from processrecord.container import ProcessRecord
     from processrecord import fileutils as fh
 
-    # ---------- pandas -> Qt model (unchanged) ----------
     class PandasModel(QAbstractTableModel):
         def __init__(self, df=pd.DataFrame(), parent=None):
             super().__init__(parent)
             self._df = df
 
-        def set_df(self, df: pd.DataFrame):
+        def set_df(self, df):
             self.beginResetModel()
-            self._df = df if df is not None else pd.DataFrame()
+            self._df = df
             self.endResetModel()
 
-        def rowCount(self, parent=None): return len(self._df.index)
-        def columnCount(self, parent=None): return len(self._df.columns)
+        def rowCount(self, parent=None):
+            return len(self._df)
+
+        def columnCount(self, parent=None):
+            return len(self._df.columns)
+
         def data(self, index, role=Qt.DisplayRole):
-            if not index.isValid() or role != Qt.DisplayRole: return None
-            return str(self._df.iat[index.row(), index.column()])
+            if role == Qt.DisplayRole:
+                return str(self._df.iat[index.row(), index.column()])
+            return None
+
         def headerData(self, section, orientation, role=Qt.DisplayRole):
-            if role != Qt.DisplayRole: return None
-            return str(self._df.columns[section] if orientation == Qt.Horizontal else self._df.index[section])
+            if role == Qt.DisplayRole:
+                if orientation == Qt.Horizontal:
+                    return str(self._df.columns[section])
+                else:
+                    return str(self._df.index[section])
+            return None
 
     # ---------- main window (mostly unchanged) ----------
     class ProcViewer(QWidget):
@@ -52,18 +65,30 @@ def launch_proc_viewer():
 
             # Top inputs in one horizontal row (unchanged)
             top_row = QHBoxLayout()
-            self.lims_edit = QLineEdit("test_lims");         self._labeled(top_row, "LimsID:", self.lims_edit)
-            self.pathlength_spin = QDoubleSpinBox();         self.pathlength_spin.setRange(0, 1e12); self.pathlength_spin.setDecimals(6); self.pathlength_spin.setValue(1.0)
+            self.lims_edit = QLineEdit("test_lims")
+            self._labeled(top_row, "LimsID:", self.lims_edit)
+
+            self.pathlength_spin = QDoubleSpinBox()
+            self.pathlength_spin.setRange(0, 1e12)
+            self.pathlength_spin.setDecimals(6); self.pathlength_spin.setValue(1.0)
             self._labeled(top_row, "Pathlength:", self.pathlength_spin)
-            self.conc_spin = QDoubleSpinBox();               self.conc_spin.setRange(0, 1e12); self.conc_spin.setDecimals(6); self.conc_spin.setValue(2.0)
+
+            self.conc_spin = QDoubleSpinBox()
+            self.conc_spin.setRange(0, 1e12)
+            self.conc_spin.setDecimals(6)
+            self.conc_spin.setValue(2.0)
             self._labeled(top_row, "Concentration:", self.conc_spin)
-            self.field_spin = QDoubleSpinBox();              self.field_spin.setRange(-1e12, 1e12); self.field_spin.setDecimals(6); self.field_spin.setValue(3.0)
+
+            self.field_spin = QDoubleSpinBox()
+            self.field_spin.setRange(-1e12, 1e12)
+            self.field_spin.setDecimals(6)
+            self.field_spin.setValue(3.0)
             self._labeled(top_row, "Field:", self.field_spin)
             top_row.addStretch(1)
 
             # Buttons (ADD: Save & Continue)
             self.run_btn = QPushButton("Load and Process")
-            self.run_btn.clicked.connect(self.run_pipeline)
+            self.run_btn.clicked.connect(self.load_normal)
             self.save_continue_btn = QPushButton("Save and Continue")
             self.save_continue_btn.clicked.connect(self.save_and_continue)
             top_row.addWidget(self.run_btn)
@@ -86,10 +111,10 @@ def launch_proc_viewer():
             tables_splitter.addWidget(full_wrap)
             tables_splitter.addWidget(clean_wrap)
             tables_splitter.setChildrenCollapsible(False)
-            # TODO explain/ fix magic numbers. 
+            #Pyqt trick to have the ratios of the processing gui split evenly no matter the size of the window
             tables_splitter.setSizes([1_000_000, 1_000_000])
 
-            # Plots splitter (unchanged)
+            # Plots splitter
             self.pre_canvas = None
             self.post_canvas = None
             self.pre_plot_holder = QVBoxLayout()
@@ -101,6 +126,7 @@ def launch_proc_viewer():
             plots_splitter.addWidget(self._with_label("Pre-clean Plot", pre_plot_wrap))
             plots_splitter.addWidget(self._with_label("Post-clean Plot", post_plot_wrap))
             plots_splitter.setChildrenCollapsible(False)
+            #same trick here. This is why we have large numbers
             plots_splitter.setSizes([800_000, 800_000])
 
             # Main vertical splitter — CHANGE sizes to give more space to plots if you want
@@ -108,7 +134,6 @@ def launch_proc_viewer():
             main_splitter.addWidget(tables_splitter)
             main_splitter.addWidget(plots_splitter)
             main_splitter.setChildrenCollapsible(False)
-            # ↓ If you previously had [1_600_000, 600_000], now bias plots more:
             main_splitter.setSizes([1_000_000, 1_000_000])
 
             # Root layout (unchanged)
@@ -116,16 +141,19 @@ def launch_proc_viewer():
             root.addLayout(top_row)
             root.addWidget(main_splitter)
 
+        # Injects a right-aligned label and the widget as siblings into an existing layout;
         def _labeled(self, layout, text, widget):
             lab = QLabel(text); lab.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
             layout.addWidget(lab); layout.addWidget(widget)
 
+        # Returns a single QWidget 'wrapper' containing a centered label stacked vertically above the widget
         def _with_label(self, text, widget):
             w = QWidget(); v = QVBoxLayout(w)
             lab = QLabel(text); lab.setAlignment(Qt.AlignCenter)
             v.addWidget(lab); v.addWidget(widget)
             return w
 
+        #clear and update canvas
         def _set_canvas_in(self, holder_layout: QVBoxLayout, new_canvas: FigureCanvas, keep_attr: str):
             old_canvas = getattr(self, keep_attr, None)
             if old_canvas is not None:
@@ -137,140 +165,90 @@ def launch_proc_viewer():
             new_canvas.draw_idle()
 
         def load_processed(self):
-            import pandas as pd
-            from PySide6.QtWidgets import QFileDialog, QMessageBox
-
-            def safe_float(x, default=0.0):
-                try:
-                    if pd.isna(x): return default
-                    return float(x)
-                except Exception:
-                    return default
+            fname, _ = QFileDialog.getOpenFileName()
+            if not fname:
+                return
 
             try:
-                path, _ = QFileDialog.getOpenFileName(
-                    self,
-                    "Select processed CSV (mergedOut)",
-                    filter="CSV Files (*.csv);;All Files (*)"
-                )
-                if not path:
-                    return
+                df = pd.read_csv(fname)
+                name = os.path.splitext(os.path.basename(fname))[0]
+                raw_pos = df[[
+                    "wavelength_nm_inp",
+                    "xcartesian_mcdpos_deltaabsorptivityarbunits_inp",
+                    "ycartesian_mcdpos_deltaabsorptivityarbunits_inp",
+                    "rabsolute_mcdpos_deltaabsorptivityarbunits_inp",
+                    "theta_mcdpos_radians_inp",
+                    "stddevxcartesian_mcdpos_deltaabsorptivity_inp",
+                    "stddevycartesian_mcdpos_deltaabsorptivity_inp"
+                ]]
+                raw_neg = df[[
+                    "wavelength_nm_inp",
+                    "xcartesian_mcdneg_deltaabsorptivityarbunits_inp",
+                    "ycartesian_mcdneg_deltaabsorptivityarbunits_inp",
+                    "rabsolute_mcdneg_deltaabsorptivityarbunits_inp",
+                    "theta_mcdneg_radians_inp",
+                    "stddevxcartesian_mcdneg_deltaabsorptivity_inp",
+                    "stddevycartesian_mcdneg_deltaabsorptivity_inp"
+                ]]
+                raw_abs = df[[
+                    "wavelength_nm_inp",
+                    "uvvisabsorptivity_abs_absorptivityarbunits_inp"
+                ]]
+                raw_sticks = df[[
+                    "wavelength_nm_inp",
+                    "sticks_out"
+                ]]
+                pos_df = raw_pos.rename(columns={
+                    "wavelength_nm_inp": "wavelength",
+                    "xcartesian_mcdpos_deltaabsorptivityarbunits_inp": "x_pos",
+                    "ycartesian_mcdpos_deltaabsorptivityarbunits_inp": "y_pos",
+                    "rabsolute_mcdpos_deltaabsorptivityarbunits_inp": "R",
+                    "theta_mcdpos_radians_inp": "theta",
+                    "stddevxcartesian_mcdpos_deltaabsorptivity_inp": "std_dev_x",
+                    "stddevycartesian_mcdpos_deltaabsorptivity_inp": "std_dev_y"
+                })
+                neg_df = raw_neg.rename(columns={
+                    "wavelength_nm_inp": "wavelength",
+                    "xcartesian_mcdneg_deltaabsorptivityarbunits_inp": "x_neg",
+                    "ycartesian_mcdneg_deltaabsorptivityarbunits_inp": "y_neg",
+                    "rabsolute_mcdneg_deltaabsorptivityarbunits_inp": "R",
+                    "theta_mcdneg_radians_inp": "theta",
+                    "stddevxcartesian_mcdneg_deltaabsorptivity_inp": "std_dev_x",
+                    "stddevycartesian_mcdneg_deltaabsorptivity_inp": "std_dev_y"
+                })
+                abs_df = raw_abs.rename(columns={
+                    "wavelength_nm_inp": "wavelength",
+                    "uvvisabsorptivity_abs_absorptivityarbunits_inp": "intensity"
+                })
+                sticks_df = raw_sticks.rename(columns={
+                    "wavelength_nm_inp": "wavelength",
+                    "sticks_out": "strength"
+                })
+                #grab first one they are all the same
+                lims_ID = df["lims_ID"].iloc[0]
+                conc = df["concentration_MOL_L"].iloc[0]
+                pathlength = df["pathlength_cm"].iloc[0]
+                field_B = df["field_B"].iloc[0]
 
-                df = pd.read_csv(path)
-                if df is None or df.empty or not isinstance(df, pd.DataFrame):
-                    QMessageBox.warning(self, "Warning", f"{path} is empty or invalid.")
-                    return
-
-                # ---- pull metadata from last row (fallbacks ok) ----
-                last = df.iloc[-1] if len(df) else {}
-                lims = str(getattr(last, "lims_ID", getattr(df, "lims_ID", "loaded_lims"))) if isinstance(last,
-                                                                                                          pd.Series) else "loaded_lims"
-                name = str(getattr(last, "name", "processed_import")) if isinstance(last,
-                                                                                    pd.Series) else "processed_import"
-                concentration = safe_float(getattr(last, "concentration_MOL_L", 0.0))
-                pathlength = safe_float(getattr(last, "pathlength_cm", 0.0))
-                field = safe_float(getattr(last, "field_B", 0.0))
-
-                # ---- reflect into GUI ----
-                self.lims_edit.setText(lims)
-                self.conc_spin.setValue(concentration)
-                self.pathlength_spin.setValue(pathlength)
-                self.field_spin.setValue(field)
-
-                # ---- construct EMPTY dfs with expected schema (avoid NoneType in __init__) ----
-                pos_cols = ["wavelength", "x_pos", "y_pos", "R", "theta", "std_dev_x", "std_dev_y", "additional"]
-                neg_cols = ["wavelength", "x_neg", "y_neg", "R", "theta", "std_dev_x", "std_dev_y", "additional"]
-                abs_cols = ["wavelength", "intensity"]
-                stk_cols = ["wavelength", "strength"]
-
-                empty_pos = pd.DataFrame(columns=pos_cols)
-                empty_neg = pd.DataFrame(columns=neg_cols)
-                empty_abs = pd.DataFrame(columns=abs_cols)
-                empty_stk = pd.DataFrame(columns=stk_cols)
-
-                input_tuple = (empty_pos, empty_neg, empty_abs, empty_stk, name)
-
-                # ctor order: (input_tuple, lims, conc, pl, field)
-                self.proc = ProcessRecord(input_tuple, lims, concentration, pathlength, field)
-
-                # now inject the real processed df
-                if hasattr(self.proc, "set_merged_df"):
-                    self.proc.set_merged_df(df)
-                else:
-                    QMessageBox.critical(self, "Error", "ProcessRecord.set_merged_df() not found.")
-                    return
-
-                # ---- tables ----
-                self.full_model.set_df(df)
-                self.clean_model.set_df(df)
-                self._result_df = df
-
-                # ---- plots ----
-                if hasattr(self.proc, "plot_extinction"):
-                    fig_pre, _ = self.proc.plot_extinction(return_fig=True)
-                    self._set_canvas_in(self.pre_plot_holder, FigureCanvas(fig_pre), "pre_canvas")
-                    fig_post, _ = self.proc.plot_extinction(return_fig=True)
-                    self._set_canvas_in(self.post_plot_holder, FigureCanvas(fig_post), "post_canvas")
-
-                QMessageBox.information(self, "Loaded", f"Processed file loaded for LIMS '{lims}'.")
+                self.proc = ProcessRecord((pos_df, neg_df, abs_df, sticks_df, name),lims_ID, conc, pathlength, field_B)
 
             except Exception as e:
-                import traceback
-                traceback.print_exc()
-                QMessageBox.critical(self, "Error", f"{type(e).__name__}: {e}")
+                print(f"Failed to load processed data -> {e}")
+            self.run_pipeline()
+        def load_normal(self):
+            lims = self.lims_edit.text().strip() or "test_lims"
+            pathlength = float(self.pathlength_spin.value())
+            concentration = float(self.conc_spin.value())
+            field = float(self.field_spin.value())
 
+            pos_df, neg_df, abs_df, sticks_df, basename = fh.read_pos_neg_abs()
+
+            # 5) Build tuple and create ProcessRecord (note arg order conc, pathlength)
+            input_tuple = (pos_df, neg_df, abs_df, sticks_df, basename)
+            self.proc = ProcessRecord(input_tuple, lims, concentration, pathlength, field)
+            self.run_pipeline()
         def run_pipeline(self):
             try:
-                lims = self.lims_edit.text().strip() or "test_lims"
-                pathlength = float(self.pathlength_spin.value())
-                concentration = float(self.conc_spin.value())
-                field = float(self.field_spin.value())
-
-                # input + process
-
-                # 1) Get file paths via Qt
-                paths, _ = QFileDialog.getOpenFileNames(
-                    self,
-                    "Select CSV files (pos/neg/abs; sticks optional)",
-                    filter="CSV Files (*.csv);;All Files (*)"
-                )
-                if not paths:
-                    return
-
-                # 2) Classify by filename
-                mapping = fh.guess_roles_from_filenames(paths)
-                for need in ("pos", "neg", "abs"):
-                    if need not in mapping:
-                        QMessageBox.critical(self, "Error", f"Missing required file: {need}")
-                        return
-
-                # 3) Your preferred explicit schemas
-                column_names = {
-                    "pos":    ["wavelength","x_pos","y_pos","R","theta","std_dev_x","std_dev_y","additional"],
-                    "neg":    ["wavelength","x_neg","y_neg","R","theta","std_dev_x","std_dev_y","additional"],
-                    "abs":    ["wavelength","intensity"],
-                    "sticks": ["wavelength","strength"],
-                }
-
-                # 4) Read with header=None and assign names
-                pos_df, neg_df, abs_df, sticks_df, ident = fh.read_pos_neg_abs_from_paths(
-                    mapping,
-                    column_names=column_names,
-                    assume_no_header=True,          # <-- important for unlabeled CSVs
-                    csv_reader=pd.read_csv          # you can pass a custom reader if needed
-                )
-
-                # 5) Build tuple and create ProcessRecord (note arg order conc, pathlength)
-                input_tuple = (pos_df, neg_df, abs_df, sticks_df, ident)
-                self.proc = ProcessRecord(input_tuple, lims, concentration, pathlength, field)
-
-                #input_tuple = (pos_df, neg_df, abs_df, sticks_df, ident)
-                # NOTE: ProcessRecord expects (concentration, pathlength)
-                #self.proc = ProcessRecord(input_tuple, lims, concentration, pathlength, field)
-                # SAM NOTE this is where LLM flags issue with passing pl first, conc second. Switching.
-                #self.proc = ProcessRecord(input_tuple, lims, pathlength, concentration, field)
-
-
                 # Full (pre-clean)
                 full_df = self.proc.get_merged_df()
                 self.full_model.set_df(full_df)
@@ -313,10 +291,14 @@ def launch_proc_viewer():
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"{type(e).__name__}: {e}")
 
+        @property
+        def result_df(self):
+            return self._result_df
+
     app = QApplication(sys.argv)
     viewer = ProcViewer()
     viewer.showMaximized()  # full screen as before
     app.exec()
 
     # Return whatever was cleaned at the time of Save & Continue (or after last run)
-    return viewer._result_df
+    return viewer.result_df
