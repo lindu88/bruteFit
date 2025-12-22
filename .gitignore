@@ -239,6 +239,15 @@ cmake-build-*/
 # IntelliJ
 out/
 
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyCharm / IntelliJ project files
+.idea/
+cmake-build-*/
+
 # mpeltonen/sbt-idea plugin
 .idea_modules/
 
