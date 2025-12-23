@@ -131,24 +131,25 @@ class BfResult:
         return filtered_results
 
     #TODO: add optional gaussian count g_n parameter
-    def n_best_results(self, n=3, metric='redchi', gc_start=None, gc_end=None, min_sigma = None,
-                       max_sigma = None, min_amplitude = None, max_amplitude = None):
+    def n_best_results(self, n=3, metric='redchi', gc_start=None, gc_end=None,
+                       min_sigma=None, max_sigma=None, min_amplitude=None, max_amplitude=None):
+        # Filter results
+        filtered = self._filter_results(gc_start, gc_end, min_sigma, max_sigma, min_amplitude, max_amplitude)
 
-        filtered = self._filter_results(gc_start=gc_start, gc_end=gc_end, min_sigma=min_sigma,
-                                        max_sigma=max_sigma, min_amplitude = min_amplitude, max_amplitude=max_amplitude)
+        # Get valid items (where first result exists)
+        valid_items = [item for item in filtered if item[0] is not None]
+
+        # Sort based on metric # inputs are pairs of model results
         if metric == 'residual_rms':
-            items = [item for item in filtered if item[0] is not None]
-            return sorted(items, key=lambda x: self._residual_rms(x[0]) + self._residual_rms(x[1]))[:n]
+            return sorted(valid_items, key=lambda x: self._residual_rms(x[0]) + self._residual_rms(x[1]))[:n]
         elif metric == 'combo':
-            items = [item for item in filtered if item[0] is not None]
-            return sorted(items, key=lambda x: self._combo_metric(x[0] + self._combo_metric(x[1])))[:n]
+            return sorted(valid_items, key=lambda x: self._combo_metric(x[0]) + self._combo_metric(x[1]))[:n]
         else:
-            # Assume metric is an attribute of the first ModelResult (item[0])
-            items = [item for item in filtered if hasattr(item[0], metric)]
-            return sorted(items, key=lambda r: getattr(r[0], metric))[:n]
+            #sort by any metric part of lmfit modelresult by default
+            return sorted(valid_items, key=lambda r: getattr(r[0], metric))[:n]
 
-    def _combo_metric(self, result: ModelResult):
-        return self.bic_w * getattr(result, 'bic') + self.redchi_w * getattr(result, 'redchi') + self.rms_w * self._residual_rms(result)
+    def _combo_metric(self, result):
+        return self.bic_w * result.bic + self.redchi_w * result.redchi + self.rms_w * self._residual_rms(result)
 
     # TODO: add optional gaussian count g_n parameter
     def get_plot_figs(self, n=3, metric='redchi', gc_start=None, gc_end=None,
@@ -410,7 +411,7 @@ def fit_models(mcd_df, fc = None, processes = 4):
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
 
-    win = MainResultWindow(bfResult=results)
+    win = MainResultWindow(bfResult=results, df_fc=(mcd_df, fc))
     win.show()
 
     app.exec()

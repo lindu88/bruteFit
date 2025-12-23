@@ -1,6 +1,5 @@
 import sys
 from math import comb
-
 import numpy as np
 from PySide6 import QtGui
 from PySide6.QtCore import Qt, QTimer
@@ -26,8 +25,7 @@ from matplotlib.backends.backend_qtagg import (
     FigureCanvasQTAgg as FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar
 )
-from . import fitConfig as configContainer
-
+import multiprocessing as mp
 from . import dataFitting as daf
 
 matplotlib.use("QtAgg")
@@ -162,9 +160,9 @@ class MainResultWindow(QMainWindow):
 
 
     def reset(self):
-        mcd_df, fc, coop = self.df_fc
+        mcd_df, fc = self.df_fc
         self.close()
-        daf.fit_models(mcd_df, fc, processes=4, use_coop=coop)
+        daf.fit_models(mcd_df, fc, processes=mp.cpu_count())
 
 class MatplotlibGallery(QWidget):
     def __init__(self, figures=None, parent=None):
@@ -228,8 +226,6 @@ class guessWindow(QDialog):
 
         self.pa_inp_list = []
 
-        self.use_coop = False  # class-level variable to store toggle state
-
         # keep references
         self.x = np.asarray(x, dtype=float)
         self.y_abs = np.asarray(y_abs, dtype=float)
@@ -273,13 +269,6 @@ class guessWindow(QDialog):
         self._btn_update.clicked.connect(self._on_update_clicked)
         self._form.addRow(self._btn_update)
 
-        # use coop button (toggle)
-        self._btn_coop = QPushButton("Use Coop")
-        self._btn_coop.setCheckable(True)
-        self._btn_coop.setChecked(self.use_coop)
-        self._btn_coop.toggled.connect(self._on_coop_toggled)
-        self._form.addRow(self._btn_coop)
-
 
         # file button for comp data
         self._btn_load = QPushButton("open comp data")
@@ -295,11 +284,6 @@ class guessWindow(QDialog):
         layout.addWidget(buttons)
 
         QTimer.singleShot(0, self.update)
-
-    def _on_coop_toggled(self, checked: bool):
-        self.use_coop = checked
-    def get_use_coop(self) -> bool:
-        return self.use_coop
     def get_peak_centers_fig(self, peak_centers) -> Figure:
         y_at_centers = np.interp(peak_centers, self.x, self.y_mcd)
 
