@@ -1,12 +1,8 @@
 from typing import Any
-
 import pandas as pd
 import os
 import re
-import tkinter as tk
-from tkinter import filedialog, messagebox
-
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 from pandas import DataFrame
 
 
@@ -56,7 +52,8 @@ def _select_files_processing() -> tuple[dict[str, str], str | None]:
         if match:
             files[match] = file_path
         else:
-            messagebox.showerror(
+            QMessageBox.critical(
+                None,  # Parent widget (None for no parent)
                 "File Naming Error",
                 f"File {base_name} does not contain 'pos', 'neg', 'abs', or 'sticks'. "
                 "Please rename the file accordingly."

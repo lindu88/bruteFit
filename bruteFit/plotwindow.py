@@ -1,8 +1,4 @@
-import sys
-from math import comb
-import numpy as np
-from PySide6 import QtGui
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QMainWindow, QScrollArea, QSizePolicy, QLineEdit, QCheckBox, QFileDialog, QApplication
 )
@@ -11,8 +7,7 @@ from scipy.signal import peak_prominences, savgol_filter, find_peaks
 
 
 from math import comb
-from dataclasses import asdict
-from typing import Optional, Sequence, Dict, Any
+from typing import Optional, Dict
 
 import numpy as np
 from PySide6.QtCore import Qt
@@ -27,8 +22,8 @@ from matplotlib.backends.backend_qtagg import (
 )
 import multiprocessing as mp
 from . import dataFitting as daf
-
 matplotlib.use("QtAgg")
+
 class MainResultWindow(QMainWindow):
     def __init__(self, bfResult=None, df_fc = None):
         super().__init__()

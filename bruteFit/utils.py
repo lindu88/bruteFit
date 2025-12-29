@@ -1,5 +1,5 @@
 import os
-
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from bruteFit.fitConfig import FitConfig
 
 
@@ -160,8 +160,13 @@ def launch_proc_viewer():
                 holder_layout.removeWidget(old_canvas)
                 old_canvas.setParent(None)
                 old_canvas.deleteLater()
+
+            toolbar = NavigationToolbar(new_canvas, self)
+
+            setattr(self, f"{keep_attr}_toolbar", toolbar)
             setattr(self, keep_attr, new_canvas)
             holder_layout.addWidget(new_canvas)
+            holder_layout.addWidget(toolbar)
             new_canvas.draw_idle()
 
         def load_processed(self):

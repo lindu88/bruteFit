@@ -1,6 +1,4 @@
-import numpy as np
 import multiprocessing as mp
-
 import bruteFit.utils as utils
 from bruteFit.fitConfig import FitConfig
 from bruteFit.dataFitting import fit_models
@@ -23,7 +21,7 @@ def main():
     mcd_df = utils.launch_proc_viewer()
     # results = fit_models(mcd_df)  # using pre-set defaults - 4 processes by default
     fit_models(mcd_df, fc, processes=mp.cpu_count())
-    #fit_models(mcd_df, fc, processes=1)
+    # fit_models(mcd_df, fc, processes=1)
     # having a single process fixes segfault on mac
 
 #when multiprocessing on windows and generally - need name guard

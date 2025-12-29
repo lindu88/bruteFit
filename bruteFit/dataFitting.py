@@ -1,25 +1,15 @@
-import math
-import sys
 import time
-
-import scipy.integrate as integrate
-from PySide6.QtWidgets import QApplication, QDialog
-from scipy.signal import find_peaks, savgol_filter, peak_prominences
+from PySide6.QtWidgets import QDialog
 from . import gaussianModels
-from . import plotwindow
-from math import comb
 import itertools
 from lmfit.model import ModelResult, Model
 import matplotlib.pyplot as plt
 import numpy as np
 from collections import defaultdict
-
 from joblib import Parallel, delayed
-
-from . import fitConfig
 from .fitConfig import FitConfig
 from .gaussianModels import stable_gaussian_sigma
-from .plotwindow import MatplotlibGallery, guessWindow, MainResultWindow
+from .plotwindow import guessWindow, MainResultWindow
 
 
 #TODO: Docs and use pyside6 for parameters
@@ -37,7 +27,7 @@ class BfResult:
         self.dataX = datax
         self.dataY = datay
         self.dataZ = dataz
-        self.mcd_results = [()]  # List of lmfit.ModelResult objects
+        self.mcd_results = [()]  # List of lmfit.ModelResult object pairs
         self.redchi_threshold = redchi_threshold
         self.residual_rms_threshold = residual_rms_threshold
         self.bic_threshold = bic_threshold
@@ -85,20 +75,18 @@ class BfResult:
             filtered = [(r_mcd,r_abs) for (r_mcd,r_abs) in filtered if r_mcd.bic < self.bic_threshold]
 
         # --- Component count filter ---
-        if gc_start is not None or gc_end is not None:
-            start = gc_start if gc_start is not None else 0
-            end = gc_end if gc_end is not None else float('inf')
+        start = gc_start if gc_start is not None else 0
+        end = gc_end if gc_end is not None else float('inf')
 
-            def count_components(res):
-                # count unique prefixes (A0_, B1_, etc.)
-                param_names = res.params.keys()
-                prefixes = {name.split('_', 1)[0] for name in param_names}
-                return len(prefixes)
+        def count_components(res):
+            # count unique prefixes (A0_, B1_, etc.)
+            param_names = res.params.keys()
+            prefixes = {name.split('_', 1)[0] for name in param_names}
+            return len(prefixes)
 
-            filtered = [(r_mcd,r_abs) for (r_mcd,r_abs) in filtered if start <= count_components(r_mcd) <= end]
+        filtered = [(r_mcd,r_abs) for (r_mcd,r_abs) in filtered if start <= count_components(r_mcd) <= end]
 
         #filter by min and max sigma/amp
-
         def get_sig(res):
             params_dict = self.eval_result(res)
             return [v for k, v in params_dict.items() if k.endswith("_sigma")]
@@ -131,8 +119,7 @@ class BfResult:
         return filtered_results
 
     #TODO: add optional gaussian count g_n parameter
-    def n_best_results(self, n=3, metric='redchi', gc_start=None, gc_end=None,
-                       min_sigma=None, max_sigma=None, min_amplitude=None, max_amplitude=None):
+    def n_best_results(self, n=3, metric='redchi', gc_start=None, gc_end=None,min_sigma=None, max_sigma=None, min_amplitude=None, max_amplitude=None):
         # Filter results
         filtered = self._filter_results(gc_start, gc_end, min_sigma, max_sigma, min_amplitude, max_amplitude)
 
@@ -152,18 +139,13 @@ class BfResult:
         return self.bic_w * result.bic + self.redchi_w * result.redchi + self.rms_w * self._residual_rms(result)
 
     # TODO: add optional gaussian count g_n parameter
-    def get_plot_figs(self, n=3, metric='redchi', gc_start=None, gc_end=None,
-                      min_sigma=None, max_sigma=None, min_amplitude=None, max_amplitude=None):
+    def get_plot_figs(self, n=3, metric='redchi', gc_start=None, gc_end=None,min_sigma=None, max_sigma=None, min_amplitude=None, max_amplitude=None):
         """
         Plot the top N best fits over the data from both mcd and abs results.
         """
         fig_list = []
 
-        results = self.n_best_results(
-            n=n, metric=metric, gc_start=gc_start, gc_end=gc_end,
-            min_sigma=min_sigma, max_sigma=max_sigma,
-            min_amplitude=min_amplitude, max_amplitude=max_amplitude
-        )
+        results = self.n_best_results(n=n, metric=metric, gc_start=gc_start, gc_end=gc_end,min_sigma=min_sigma, max_sigma=max_sigma,min_amplitude=min_amplitude, max_amplitude=max_amplitude)
 
         for i, (r_mcd, r_abs) in enumerate(results, 1):
             fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)  # 2 rows, 1 column subplots
@@ -183,9 +165,8 @@ class BfResult:
         return fig_list
     def _plot_components_visible(self, result, x, z, i, ax):
         """Plot the original z-data, model components, metrics, and parameters on given axis."""
-        from collections import defaultdict
-
-        # No new figure creation here — use the provided ax
+        #TODO: Talk with sam about plotting
+        #No new figure creation here — use the provided ax
 
         # Plot measured data
         ax.plot(x, z, '-', lw=1, alpha=0.7, label='Measured Data')
@@ -207,14 +188,10 @@ class BfResult:
             "Combo": self._combo_metric(result)
         }
         metrics_text = "\n".join(f"{name}: {val:.3g}" for name, val in metrics.items())
-        ax.text(0.02, 0.95, metrics_text,
-                transform=ax.transAxes, fontsize=8,
-                va='top', ha='left')
+        ax.text(0.02, 0.95, metrics_text,transform=ax.transAxes, fontsize=8,va='top', ha='left')
 
         # Index number in top-right (axes coords)
-        ax.text(0.98, 0.95, f"#{i}",
-                transform=ax.transAxes, fontsize=12,
-                va='top', ha='right')
+        ax.text(0.98, 0.95, f"#{i}",transform=ax.transAxes, fontsize=12,va='top', ha='right')
 
         # Parameters from eval_result (grouped, with separation) – placed in data coords
         params_dict = self.eval_result(result)  # your single-result eval function
@@ -235,9 +212,7 @@ class BfResult:
         x_min = min(x)
         y_max = max(z)
         offset = 0.15 * (max(x) - min(x))  # 15% of x range for margin
-        ax.text(x_min - offset, y_max, params_text,
-                fontsize=7, va='top', ha='right',
-                transform=ax.transData)
+        ax.text(x_min - offset, y_max, params_text,fontsize=7, va='top', ha='right',transform=ax.transData)
 
         ax.legend()
 
@@ -270,12 +245,9 @@ class BfResult:
             print(f"A/D or B/D values with index {i} in fit and names {name_mcd} {name_abs}: {np.abs(mcd_amp / abs_amp)}")
 
 def brute_force_models(x, y_abs, y_mcd, fc = FitConfig()):
-    model_list = [
-        gaussianModels.model_stable_gaussian_sigma,
-        gaussianModels.model_stable_gaussian_deriv_sigma
-    ]
-
+    model_list = [gaussianModels.model_stable_gaussian_sigma,gaussianModels.model_stable_gaussian_deriv_sigma]
     dlg = guessWindow(x, y_abs, y_mcd, fc)
+
     if dlg.exec() == QDialog.DialogCode.Accepted:  # blocks until user clicks
         peak_amplitudes, peak_centers, peak_sigmas = dlg.get_guess()
         fc = dlg.get_fc()
@@ -386,8 +358,7 @@ def fit_models(mcd_df, fc = None, processes = 4):
     #just to know how long the fitting took
     start = time.perf_counter()  # Start timer
 
-    results_lists = Parallel(n_jobs=processes, backend="loky")(
-        delayed(fit_worker)(f"Worker-{i + 1}", x, z_mcd, y_abs, fc, chunk) for i, chunk in enumerate(chunks))
+    results_lists = Parallel(n_jobs=processes, backend="loky")(delayed(fit_worker)(f"Worker-{i + 1}", x, z_mcd, y_abs, fc, chunk) for i, chunk in enumerate(chunks))
 
 
     # Loop through each list of results returned from each worker

@@ -17,7 +17,6 @@ class FitConfig:
 
     # Fitting
     MERGE_DX: int = 500  # Distance to merge centers between abs and mcd
-    PERCENTAGE_RANGE: int = 30  # Allowed percentage relaxation for re-fitting after removing poor curves
     MAX_SIGMA: int = 60000  # Max sigma for Gaussians
     MIN_PEAK_X_DISTANCE: int = 0
     ESTIMATE_SIGMA_ITERATIONS_END: int = 10  # START/END to END-1/END
@@ -30,7 +29,6 @@ class FitConfig:
     MIN_GC: int = 2 #minimum number of gaussians.
 
     DELTA_CTR: float = 10 # difference between the abs and mcd centers in sample space. 
-    DELTA_CTR: float = 10
     DELTA_SIGMA: float = 10
 
     def to_string(self) -> str:
