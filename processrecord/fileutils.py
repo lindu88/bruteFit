@@ -5,7 +5,17 @@ import re
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 from pandas import DataFrame
 
+"""
+Helper function that reads a csv file and returns a dataframe.
 
+params:
+filename- Full path of the csv file
+column_names: column names of the dataframe in order from left to right of csv file
+
+returns - dataframe of csv file or none if error
+
+Data is sorted by wavelength from low to high before returning
+"""
 def _read_csv_file(filename: str, column_names: list = None) -> DataFrame | None:
     try:
         if column_names:
@@ -29,12 +39,16 @@ def _read_csv_file(filename: str, column_names: list = None) -> DataFrame | None
         print(f"Unexpected error: {e}")
     return None
 
+"""
+Helper function that uses pyside6 to open a file selection dialog to select files for processing.
+params:
+None
+
+returns -  Tuple(Dictionary of full filepaths to be processed, base name for output file)
+
+This function expects the files to end with _pos, _neg, _abs, and optionally sticks. _pos,_neg, and _abs files must be present. 
+"""
 def _select_files_processing() -> tuple[dict[str, str], str | None]:
-    """Return a dict like {'pos': path, 'neg': path, 'abs': path, 'sticks': path?}
-    based on filenames selected by the user.
-    """
-
-
     file_paths,_ = QFileDialog.getOpenFileNames()
 
     files: dict[str, str] = {}
@@ -63,7 +77,15 @@ def _select_files_processing() -> tuple[dict[str, str], str | None]:
 
     return files, base_name
 """
-returns tuple of pos_df, neg_df, abs df, sticks_df, name
+Top level function that calls the previous two functions to read the csv files needed for processing and output a dataframe.
+
+Params:
+None
+
+returns -  Tuple(positive dataframe, negative dataframe, absorption dataframe, sticks dataframe, base name for output file)
+
+pos and neg are mcd response data.
+Abs is absorption. Sticks is optional.
 """
 def read_pos_neg_abs() -> tuple[Any, Any, Any, Any, str | None]:
     files, base_name = _select_files_processing()

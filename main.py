@@ -39,4 +39,3 @@ if __name__ == "__main__":
 # TODO implement sig fig rounding 
 # TODO change B in A/B to D
 # TODO print name of file (and strip _abs etc) in the window somewhere so you don't get confused processing a bunch of em
-# TODO make preclean/postclean zoomable

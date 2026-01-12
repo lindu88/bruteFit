@@ -1,7 +1,10 @@
 import numpy as np
 import pandas as pd
 
-
+"""
+krmaer kronig in arbitray space
+currently unused until mord is added
+"""
 def kk_arbspace(omega: np.ndarray, imchi: np.ndarray, alpha: int) -> np.ndarray:
     # we ought to probably look this thing up and make sure we have it implemented correctly.
     omega = np.array(omega)
@@ -40,7 +43,17 @@ def kk_arbspace(omega: np.ndarray, imchi: np.ndarray, alpha: int) -> np.ndarray:
         rechi[0, j] = 2 / np.pi * (a[0, j] + b[0, j]) * omega[0, j] ** (-2 * alpha)
 
     return rechi.flatten()
+"""
+Accounts for changes in baseline by subtracting the difference between data collected from positive and negative aligned fields.
 
+Params:
+positive_df- Pandas DataFrame for positively aligned field mcd response.
+negative_df- Pandas DataFrame for negatively aligned field mcd response.
+
+returns - tuple(parametric x diffrence, parametric y diffrence, std deviation error of x, std deviation error of y, final R signed, final std deviation error of R)
+
+R_signed is z -> mcd response
+"""
 def calculate_differences(positive_df: pd.DataFrame, negative_df: pd.DataFrame) -> tuple:
     # This is a way to account for a baseline that is introduce by optical abberations of the setup, incl. linear dichroisms(?)
     # we do this parametrically ( by X and by Y)
@@ -55,6 +68,18 @@ def calculate_differences(positive_df: pd.DataFrame, negative_df: pd.DataFrame) 
     R_signed = R * np.sign(y_diff) #TODO: why do we multiply by the sign of y and not x? idk it I think its bc it looked better. figure it out.
     return x_diff, y_diff, x_stdev, y_stdev, R_signed, R_stdev
 
+"""
+Converts arbitrary absorption to extinction units.
+
+Params:
+abs_inp- list of absorption data
+concentration_MOL_L- Concentration of sample
+pathlength_CM - Path length through sample
+
+returns - Absorption data in extinction units 
+
+concentration and path length passed in from GUI
+"""
 #TODO: norm to field
 def convert_abs_to_extinction(abs_inp: list, concentration_MOL_L: float, pathlength_CM: float) -> list:
     extinciton = []
