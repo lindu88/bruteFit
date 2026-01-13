@@ -6,7 +6,13 @@ from matplotlib import pyplot as plt
 from . import helpers as hc
 import pandas as pd
 
+"""
+Class acts as a container for the input and output data tied to the processing.
 
+The Constructor accepts a tuple of (mcd_pos, mcd_neg, abs, sticks, name) then the LIMS ID, concentration, path length, and field.
+
+Lims ID can be random and is currently unused.
+"""
 class ProcessRecord:
     def __init__(self, input_tuple, lims, conc, pl, field):
         mcd_pos, mcd_neg, abs, sticks, name = input_tuple
@@ -41,7 +47,14 @@ class ProcessRecord:
         # test
         print(self.mergedOut)
 
-
+    """
+    Fills the input sections that will become part of the final processed dataframe.
+    
+    Params:
+    None
+    
+    returns - None
+    """
     def _fill_with_input(self):
         #UVVIS and MCD wavelength - they share the same set but are defined on different values
         self.dataInp["wavelength_nm_inp"].extend(self.abs["wavelength"].values)
@@ -75,8 +88,14 @@ class ProcessRecord:
         self.dataInp["stddevxcartesian_mcdneg_deltaabsorptivity_inp"].extend(self.mcd_neg["std_dev_x"].values)
         self.dataInp["stddevycartesian_mcdneg_deltaabsorptivity_inp"].extend(self.mcd_neg["std_dev_y"].values)
 
+    """
+    Fills the output sections that will become part of the final processed dataframe.
 
+    Params:
+    None
 
+    returns - None
+    """
     def _fill_outputs(self):
         # Wavenumber (output)
         wavenumber_cm1_out = [1e7 / wl for wl in self.dataInp["wavelength_nm_inp"]]
@@ -86,7 +105,7 @@ class ProcessRecord:
         uvvis_intinsity_extinction = hc.convert_abs_to_extinction(self.abs["intensity"], self.concentration_MOL_L, self.pathlength_cm)
         self.dataOut["uvvis_extinction_abs_molar-1cm-1_out"].extend(uvvis_intinsity_extinction)
 
-        #sticks UVVIS -- fill with zeros id none
+        #sticks UVVIS -- fill with zeros if none
         if self.sticks is None:
             all_zeros = np.zeros(self._get_max_dfs_length())
             self.dataOut["sticks_out"].extend(all_zeros)
@@ -110,12 +129,26 @@ class ProcessRecord:
 
     """
     Removes rows with NaNs or Infs
+    
+    Parmas:
+    None
+    
+    returns - None
     """
     def clean_data(self):
         df_clean = self.mergedOut.replace([np.inf, -np.inf], np.nan).dropna()
         df_clean = df_clean.reset_index(drop=True)
         self.mergedOut = df_clean
-
+    """
+    Saves the processed dataframe to disk.
+    
+    Params:
+    Path (String) - Path to save to not including the name of the file.
+    
+    returns - None
+    
+    If the file exists it appends a number at the end to avoid overwriting.
+    """
     def save(self, path: str = ""):
         filename = f"{self.name}_processed.csv"
 
@@ -139,12 +172,31 @@ class ProcessRecord:
         self.mergedOut.to_csv(save_path, index=False, mode='x')
         print(f"Saved: {save_path}")
 
-
+    """
+    Fills the name, LIMS ID, concentration, pathlength, and field columns by duplication.
+    
+    Params:
+    None
+    
+    returns - None
+    
+    This is nice because it easily allows for subsets and to avoid index errors in processing. 
+    """
     def _fill_fields(self):
         for name, field_list in self.fields.items():
             for i in range(0, self._get_max_dfs_length()):
                 field_list.append(self.__getattribute__(name))
-
+    """
+    Returns the max column length of the processed dataframe.
+    
+    
+    Params:
+    None
+    
+    returns - None
+    
+    Used for filling gaps in data eg. _fill_fields().ect
+    """
     def _get_max_dfs_length(self) -> int:
         max_len_inp = max((len(v) for v in self.dataInp.values()), default=0)
         max_len_out = max((len(v) for v in self.dataOut.values()), default=0)
@@ -153,12 +205,18 @@ class ProcessRecord:
         max_len = max(max_len_inp, max_len_out, max_len_fields)
         return max_len
 
-    #TODO: Check again, used AI -- works
-    def _prep(self, method: str = "nan"):
-        """
-        Align (pad) abs, mcd_pos, mcd_neg, sticks on the union of their wavelength grids.
-        After alignment, 'wavelength' is a COLUMN again for each DF.
-        """
+    """
+    Align (pad) abs, mcd_pos, mcd_neg, sticks on the union of their wavelength grids.
+    After alignment, 'wavelength' is a COLUMN again for each DF.
+    
+    Params:
+    None
+    
+    returns - None
+    
+    This function was done almost completely with AI, but was reviewed and checked for accuracy. 
+    """
+    def _prep(self):
         # Gather only present dataframes
         dfs = {
             "abs": self.abs,
@@ -181,7 +239,7 @@ class ProcessRecord:
             present[i] = df
 
         ############################################################
-        #construct the master wavlenght list by compiling all the wavelengths from the dfs
+        #construct the master wavelength list by compiling all the wavelengths from the dfs
         # Build union wavelength grid
         union = pd.Index([])
         for df in present.values():
@@ -200,22 +258,22 @@ class ProcessRecord:
         self.mcd_pos = present.get("mcd_pos", self.mcd_pos)
         self.mcd_neg = present.get("mcd_neg", self.mcd_neg)
         self.sticks = present.get("sticks", self.sticks)
-
+    """
+    Getter function for the the processed dataframe.
+    """
     def get_merged_df(self):
         return self.mergedOut.copy()
-    def set_merged_df(self, df):
-        self.mergedOut = df
     """
-    Merges and pads the dfs, sticks get padded to zero
+    Merges and pads the dataframes to the final processed dataframe.
+    
+    Params:
+    None
+    
+    returns - None
+    
+    Concat is done in order (input, output, fields)
     """
     def _merge_dfs(self):
-        # --- debug display
-        pd.set_option("display.max_rows", None)
-        pd.set_option("display.max_columns", None)
-        pd.set_option("display.width", None)
-        pd.set_option("display.max_colwidth", None)
-        # ----------------------------------
-
         inp_cols = list(self.dataInp.keys())
         out_cols = list(self.dataOut.keys())
         fields_cols = list(self.fields.keys())
@@ -227,7 +285,16 @@ class ProcessRecord:
         # Concatenate in the given order
         self.mergedOut = pd.concat([inp, out, fields], axis=1)
 
-    #TODO: got lazy and used AI check later
+    """
+    Plots the processed dataframe.
+    
+    Params:
+    return_fig (Bool) - returns matplotlib figure if True, else returns None
+    
+    returns - None or Figure
+    
+    This was done almost completely with AI, but was reviewed and checked for accuracy. 
+    """
     def plot_extinction(self, return_fig=False):
         # --- Absorption arrays ---
         x_abs = self.mergedOut["wavenumber_out"]
@@ -270,7 +337,9 @@ class ProcessRecord:
             return fig, (ax1, ax2)
         plt.show()
         return None
-
+    """
+    Generates the empty input lists to be extend with the imported data.
+    """
     @staticmethod
     def generate_empty_inp_dataset():
         data = {
@@ -305,7 +374,9 @@ class ProcessRecord:
             "stddevycartesian_mcdneg_deltaabsorptivity_inp": []
         }
         return data
-
+    """
+    Generates the empty output lists to be extend with the imported data.
+    """
     @staticmethod
     def generate_empty_out_dataset():
         data = {
@@ -333,7 +404,9 @@ class ProcessRecord:
             #TODO: add mord here
         }
         return data
-
+    """
+    Generates the empty fields lists to be extend with the imported data.
+    """
     @staticmethod
     def generate_empty_fields_dataset():
         data = {

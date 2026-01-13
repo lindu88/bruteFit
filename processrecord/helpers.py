@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 """
-krmaer kronig in arbitray space
+kramers kronig in arbitrary space
 currently unused until mord is added
 """
 def kk_arbspace(omega: np.ndarray, imchi: np.ndarray, alpha: int) -> np.ndarray:
@@ -47,10 +47,10 @@ def kk_arbspace(omega: np.ndarray, imchi: np.ndarray, alpha: int) -> np.ndarray:
 Accounts for changes in baseline by subtracting the difference between data collected from positive and negative aligned fields.
 
 Params:
-positive_df- Pandas DataFrame for positively aligned field mcd response.
-negative_df- Pandas DataFrame for negatively aligned field mcd response.
+positive_df (Pandas Dataframe)- Pandas DataFrame for positively aligned field mcd response.
+negative_df (Pandas Dataframe)- Pandas DataFrame for negatively aligned field mcd response.
 
-returns - tuple(parametric x diffrence, parametric y diffrence, std deviation error of x, std deviation error of y, final R signed, final std deviation error of R)
+returns - tuple(parametric x difference, parametric y difference, std deviation error of x, std deviation error of y, final R signed, final std deviation error of R)
 
 R_signed is z -> mcd response
 """
@@ -72,11 +72,11 @@ def calculate_differences(positive_df: pd.DataFrame, negative_df: pd.DataFrame) 
 Converts arbitrary absorption to extinction units.
 
 Params:
-abs_inp- list of absorption data
-concentration_MOL_L- Concentration of sample
-pathlength_CM - Path length through sample
+abs_inp (List)- list of absorption data
+concentration_MOL_L (Float)- Concentration of sample
+pathlength_CM (Float) - Path length through sample
 
-returns - Absorption data in extinction units 
+returns - Absorption data in extinction units as list
 
 concentration and path length passed in from GUI
 """

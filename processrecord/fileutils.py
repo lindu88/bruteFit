@@ -9,8 +9,8 @@ from pandas import DataFrame
 Helper function that reads a csv file and returns a dataframe.
 
 params:
-filename- Full path of the csv file
-column_names: column names of the dataframe in order from left to right of csv file
+filename (String)- Full path of the csv file
+column_names (List): column names of the dataframe in order from left to right of csv file
 
 returns - dataframe of csv file or none if error
 
