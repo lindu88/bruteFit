@@ -2,15 +2,13 @@ import os
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from bruteFit.fitConfig import FitConfig
 
+"""
+    Launches the proc viewer GUI
 
+    Pre_clean is on the left and post_clean is on the right.
+    Can exit after load to skip save.
+    """
 def launch_proc_viewer():
-    """
-    Full-screen GUI:
-      - Top row: LimsID, Pathlength, Concentration, Field + Load & Process + Save & Continue
-      - Middle: two tables (Full pre-clean, Cleaned post-clean)
-      - Bottom: two plots (Pre-clean, Post-clean)
-      - Returns the cleaned DataFrame after 'Save & Continue'
-    """
     import sys
     import pandas as pd
     import matplotlib
@@ -55,7 +53,6 @@ def launch_proc_viewer():
                     return str(self._df.index[section])
             return None
 
-    # ---------- main window (mostly unchanged) ----------
     class ProcViewer(QWidget):
         def __init__(self):
             super().__init__()
@@ -63,7 +60,7 @@ def launch_proc_viewer():
             self.proc = None
             self._result_df = pd.DataFrame()  # will hold cleaned df for return
 
-            # Top inputs in one horizontal row (unchanged)
+            # Top inputs in one horizontal row
             top_row = QHBoxLayout()
             self.lims_edit = QLineEdit("test_lims")
             self._labeled(top_row, "LimsID:", self.lims_edit)
@@ -86,7 +83,7 @@ def launch_proc_viewer():
             self._labeled(top_row, "Field:", self.field_spin)
             top_row.addStretch(1)
 
-            # Buttons (ADD: Save & Continue)
+            # Buttons
             self.run_btn = QPushButton("Load and Process")
             self.run_btn.clicked.connect(self.load_normal)
             self.save_continue_btn = QPushButton("Save and Continue")
@@ -136,39 +133,54 @@ def launch_proc_viewer():
             main_splitter.setChildrenCollapsible(False)
             main_splitter.setSizes([1_000_000, 1_000_000])
 
-            # Root layout (unchanged)
+            # Root layout
             root = QVBoxLayout(self)
             root.addLayout(top_row)
             root.addWidget(main_splitter)
 
-        # Injects a right-aligned label and the widget as siblings into an existing layout;
+        """
+        Injects a right-aligned and centered label and the widget as siblings into an existing layout
+        """
         def _labeled(self, layout, text, widget):
-            lab = QLabel(text); lab.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
-            layout.addWidget(lab); layout.addWidget(widget)
+            lab = QLabel(text)
+            lab.setAlignment(Qt.AlignVCenter | Qt.AlignRight) #right aligned and centered by or on flags
+            layout.addWidget(lab)
+            layout.addWidget(widget)
 
-        # Returns a single QWidget 'wrapper' containing a centered label stacked vertically above the widget
+        """
+        Returns a single QWidget 'wrapper' containing a centered label stacked vertically above the widget
+        """
         def _with_label(self, text, widget):
-            w = QWidget(); v = QVBoxLayout(w)
-            lab = QLabel(text); lab.setAlignment(Qt.AlignCenter)
-            v.addWidget(lab); v.addWidget(widget)
+            w = QWidget()
+            v = QVBoxLayout(w)
+            lab = QLabel(text)
+            lab.setAlignment(Qt.AlignCenter)
+            v.addWidget(lab)
+            v.addWidget(widget)
             return w
 
-        #clear and update canvas
-        def _set_canvas_in(self, holder_layout: QVBoxLayout, new_canvas: FigureCanvas, keep_attr: str):
-            old_canvas = getattr(self, keep_attr, None)
-            if old_canvas is not None:
-                holder_layout.removeWidget(old_canvas)
-                old_canvas.setParent(None)
-                old_canvas.deleteLater()
+        """
+        clears and updates canvas in holder_layout
+        """
+        def _set_canvas_in(self, holder_layout: QVBoxLayout, new_canvas: FigureCanvas):
+            # Clear
+            for widget in holder_layout.findChildren(QWidget):
+                widget.deleteLater()
 
+            # Add new canvas with toolbar
             toolbar = NavigationToolbar(new_canvas, self)
-
-            setattr(self, f"{keep_attr}_toolbar", toolbar)
-            setattr(self, keep_attr, new_canvas)
             holder_layout.addWidget(new_canvas)
             holder_layout.addWidget(toolbar)
             new_canvas.draw_idle()
-
+        """
+        Loads a processed csv file by extracting the inputs and putting them into a new ProcessRecord object.
+        
+        Params: None
+        
+        returns - None
+        
+        The processing pipeline is ran at the end of this function. 
+        """
         def load_processed(self):
             fname, _ = QFileDialog.getOpenFileName()
             if not fname:
@@ -239,7 +251,19 @@ def launch_proc_viewer():
 
             except Exception as e:
                 print(f"Failed to load processed data -> {e}")
-            self.run_pipeline()
+            self._run_pipeline()
+
+        """
+        A normal load that takes 3 files and optionally one more file.
+        The 3 required files are the positive field mcd response, the negative field mcd response, and the absorption data.
+        The required layouts for each CSV is in the readme.md
+        
+        params: None
+        
+        returns- None
+        
+        The main processing pipeline is called at the end of this function.
+        """
         def load_normal(self):
             lims = self.lims_edit.text().strip() or "test_lims"
             pathlength = float(self.pathlength_spin.value())
@@ -251,19 +275,14 @@ def launch_proc_viewer():
             # 5) Build tuple and create ProcessRecord (note arg order conc, pathlength)
             input_tuple = (pos_df, neg_df, abs_df, sticks_df, basename)
             self.proc = ProcessRecord(input_tuple, lims, concentration, pathlength, field)
-            self.run_pipeline()
-        def run_pipeline(self):
+            self._run_pipeline()
+        def _run_pipeline(self):
             try:
-                # Full (pre-clean)
+                # Full (pre-clean) plot
                 full_df = self.proc.get_merged_df()
                 self.full_model.set_df(full_df)
-
-                # PRE-CLEAN PLOT (reuse method by temporarily pointing mergedOut)
-                bak = getattr(self.proc, "mergedOut", None)
-                self.proc.mergedOut = full_df
                 fig_pre, _ = self.proc.plot_extinction(return_fig=True)
-                self.proc.mergedOut = bak
-                self._set_canvas_in(self.pre_plot_holder, FigureCanvas(fig_pre), "pre_canvas")
+                self._set_canvas_in(self.pre_plot_holder, FigureCanvas(fig_pre))
 
                 # Clean + cleaned DF
                 self.proc.clean_data()
@@ -273,15 +292,22 @@ def launch_proc_viewer():
                 # Store cleaned for later return
                 self._result_df = clean_df
 
-                # POST-CLEAN PLOT
+                # Full (post-clean) plot
                 fig_post, _ = self.proc.plot_extinction(return_fig=True)
-                self._set_canvas_in(self.post_plot_holder, FigureCanvas(fig_post), "post_canvas")
+                self._set_canvas_in(self.post_plot_holder, FigureCanvas(fig_post))
 
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"{type(e).__name__}: {e}")
-
+        """
+        Opens prompt to save processed data
+        
+        params: None
+        
+        returns- None
+        
+        Uses the save method in ProcessRecord 
+        """
         def save_and_continue(self):
-            """Save via ProcessRecord.save(folder) and close, returning cleaned df."""
             try:
                 if self.proc is None:
                     QMessageBox.warning(self, "Warning", "Run 'Load & Process' first.")
@@ -289,9 +315,7 @@ def launch_proc_viewer():
                 folder = QFileDialog.getExistingDirectory(self, "Select Save Directory")
                 if not folder:
                     return
-                # Use your existing save method
                 self.proc.save(folder)
-                # Close window; launch_proc_viewer will return the cleaned df
                 self.close()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"{type(e).__name__}: {e}")
