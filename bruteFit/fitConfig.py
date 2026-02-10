@@ -6,6 +6,10 @@ class FitConfig:
     #TODO tune these parameters by optimizing over a large set of (representative) synthetic (and real?) data. 
     # estimate the amount of datapoints needed given the amount of params.
 
+    #So peaks are saved on reset and tied to fitting params
+    __current_peaks: () = None
+    __current_imp_peaks: [] = None
+
     # Smoothing
     WINDOW_LENGTH: int = 5  # Window length for Savitzky-Golay smoothing (in samples/ datapoints?)
     POLYORDER: int = 4  # Polynomial order for Savitzky-Golay smoothing
@@ -40,3 +44,8 @@ class FitConfig:
 
     def print(self):
         print(self.to_string())
+    def set_current_peaks(self, peaks: (), inp_peaks: []):
+        self.__current_peaks = peaks
+        self.__current_imp_peaks = inp_peaks
+    def get_current_peaks(self):
+        return self.__current_peaks, self.__current_imp_peaks

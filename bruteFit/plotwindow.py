@@ -23,7 +23,13 @@ from matplotlib.backends.backend_qtagg import (
 import multiprocessing as mp
 from . import dataFitting as daf
 matplotlib.use("QtAgg")
+"""
+This is the result window after all the fitting-which is a gallery of matplotlib figures that can be sorted on.
 
+The constructor parameters are the results of the fitting as defined in fit_models()(bfresult) and a pair (mcd dataframe, fitconfig object)
+
+The constructor accepts df_fc for the feature of being able to go back for re-fitting with the current fit params saved. 
+"""
 class MainResultWindow(QMainWindow):
     def __init__(self, bfResult=None, df_fc = None):
         super().__init__()
@@ -34,11 +40,9 @@ class MainResultWindow(QMainWindow):
 
         self.df_fc = df_fc
 
-        # ---- Central widget for QMainWindow ----
         central = QWidget(self)
         self.setCentralWidget(central)
 
-        # Horizontal split: gallery (left) + buttons (right)
         main_layout = QHBoxLayout(central)
 
         figures = self.bfResult.get_plot_figs(self.plot_n)
@@ -47,16 +51,13 @@ class MainResultWindow(QMainWindow):
         self.gallery = MatplotlibGallery(figures=figures)
         main_layout.addWidget(self.gallery, stretch=1)
 
-        # --- Right: vertical button panel ---
         btn_layout = QVBoxLayout()
         btn_layout.setAlignment(Qt.AlignTop)  # keep buttons at the top
 
         self._build_controls(btn_layout)
 
-        # Spacer at the bottom if you want them stuck at top
         btn_layout.addStretch(1)
 
-        # Add button panel to the right side (once)
         main_layout.addLayout(btn_layout)
 
     def _build_controls(self, btn_layout):
@@ -123,7 +124,7 @@ class MainResultWindow(QMainWindow):
         #custom sci notation spinbox class
         class _SciSpinBox(QDoubleSpinBox):
             def textFromValue(self, value: float) -> str:
-                return f"{value:.3e}"  # adjust precision
+                return f"{value:.5e}"  # adjust precision
 
             def valueFromText(self, text: str) -> float:
                 try:
@@ -217,8 +218,11 @@ class MatplotlibGallery(QWidget):
 class guessWindow(QDialog):
     def __init__(self, x, y_abs, y_mcd, fc, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWindowTitle("peak confirmation")
 
+        self.setWindowTitle("peak confirmation")
+        self.pa = None
+        self.pc = None
+        self.ps = None
         self.pa_inp_list = []
 
         # keep references
@@ -274,11 +278,15 @@ class guessWindow(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No
         )
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self.on_yes_clicked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
         QTimer.singleShot(0, self.update)
+
+    def on_yes_clicked(self):
+        self.fc.set_current_peaks((self.pa, self.pc, self.ps), self.pa_inp_list)
+        self.accept()
     def get_peak_centers_fig(self, peak_centers) -> Figure:
         y_at_centers = np.interp(peak_centers, self.x, self.y_mcd)
 
@@ -350,22 +358,34 @@ class guessWindow(QDialog):
 
     def get_peaks(self):
         return self.fc, self._pc, self._pa, self._ps, self.pa_inp_list
-    def set_peaks(self,fc, pc, pa, ps, pa_inp_list):
-        self.fc = fc
-        self._pc = pc
-        self._pa = pa
-        self._ps = ps
-        self._pa_inp_list = pa_inp_list
+    def save_peaks(self):
+        self.fc.set_current_peaks((self.pa, self.pc, self.ps), self.pa_inp_list)
 
+    #overide
     def update(self):
+        pa = []
+        pc = []
+        ps = []
         if self._merge_cb.isChecked():
+            # Unpack the input list and convert to lists
             pci, pai, psi = zip(*self.pa_inp_list)
             pci, pai, psi = list(pci), list(pai), list(psi)
 
+            # Get initial guesses
             pa, pc, ps = self._guess_on_all_data(self.x, self.y_abs, self.y_mcd)
+
+            # Convert to lists if they're numpy arrays, then extend -
+            if isinstance(pa, np.ndarray):
+                pa = list(pa)
+            if isinstance(pc, np.ndarray):
+                pc = list(pc)
+            if isinstance(ps, np.ndarray):
+                ps = list(ps)
+
             pa.extend(pai)
             pc.extend(pci)
             ps.extend(psi)
+
         elif not self._merge_cb.isChecked():
             if len(self.pa_inp_list) > 0:
                 pc, pa, ps = zip(*self.pa_inp_list)
@@ -392,6 +412,9 @@ class guessWindow(QDialog):
         # create simple numeric editors from current fc
         from dataclasses import asdict
         for key, val in asdict(self.fc).items():
+            #skip private class vars
+            if key.startswith('_'):
+                continue
             if isinstance(val, float):
                 sb = QDoubleSpinBox()
                 sb.setDecimals(6); sb.setRange(-1e12, 1e12); sb.setSingleStep(0.01)
@@ -671,6 +694,12 @@ class guessWindow(QDialog):
         return amps, ctrs, sigs
 
     def _guess_on_all_data(self, x, y_abs, y_mcd):
+        #check if peaks are saved to fitconfig and if so use those
+        if self.fc.get_current_peaks() != (None, None):
+            (pa, pc, ps), inp_ist = self.fc.get_current_peaks()
+            self.pa_inp_list = inp_ist
+            return pa, pc, ps
+
         # First, get guesses from absorption data
         amp_abs, ctr_abs, sigma_abs = self._generate_initial_guesses_A(x, y_abs)
 
