@@ -198,6 +198,14 @@ Temporary Items
 # AWS User-specific
 .idea/**/aws.xml
 
+# Local Python environments and caches
+.venv
+.venv/
+.venv.broken-*/
+.cache/
+.mplconfig/
+.vscode/
+
 # Generated files
 .idea/**/contentModel.xml
 
@@ -277,4 +285,3 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-

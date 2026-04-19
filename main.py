@@ -1,10 +1,33 @@
 import multiprocessing as mp
+import os
+from pathlib import Path
+
 import bruteFit.utils as utils
 from bruteFit.fitConfig import FitConfig
-from bruteFit.dataFitting import fit_models
+
+
+def configure_runtime():
+    project_root = Path(__file__).resolve().parent
+    mplconfig_dir = project_root / ".mplconfig"
+    mplconfig_dir.mkdir(exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", str(mplconfig_dir))
+
+    try:
+        import PySide6
+    except ImportError:
+        return
+
+    plugin_root = Path(PySide6.__file__).resolve().parent / "Qt" / "plugins"
+    platforms_dir = plugin_root / "platforms"
+
+    os.environ["QT_PLUGIN_PATH"] = str(plugin_root)
+    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(platforms_dir)
+    os.environ.setdefault("QT_API", "pyside6")
 
 
 def main():
+    configure_runtime()
+
     # Can use it like this to set defaults and pass to fit_models, or just use pre-set default
     fc = FitConfig()
     # NOTE we should probably explain this a bit more clearly. here I think I understand that this is showing how to pass param values to fitconfig.
@@ -19,6 +42,8 @@ def main():
     # Sam NOTE - when we update params (update button) then the removed peaks get put back on screen. 
 
     mcd_df = utils.launch_proc_viewer()
+    from bruteFit.dataFitting import fit_models
+
     # results = fit_models(mcd_df)  # using pre-set defaults - 4 processes by default
     fit_models(mcd_df, fc, processes=mp.cpu_count())
     # fit_models(mcd_df, fc, processes=1)

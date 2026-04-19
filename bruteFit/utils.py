@@ -1,5 +1,4 @@
 import os
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from bruteFit.fitConfig import FitConfig
 
 """
@@ -19,7 +18,10 @@ def launch_proc_viewer():
         QPushButton, QLabel, QTableView, QMessageBox, QSplitter, QFileDialog
     )
     from PySide6.QtCore import Qt, QAbstractTableModel
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.backends.backend_qtagg import (
+        FigureCanvasQTAgg as FigureCanvas,
+        NavigationToolbar2QT as NavigationToolbar,
+    )
 
     from processrecord.container import ProcessRecord
     from processrecord import fileutils as fh
