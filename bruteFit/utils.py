@@ -9,15 +9,20 @@ from bruteFit.fitConfig import FitConfig
     """
 def launch_proc_viewer():
     import sys
+    # Preload dateutil before any Qt imports. On this Python 3.12 + PySide6 stack,
+    # importing dateutil/six after Qt has initialized shiboken can crash startup.
+    from dateutil import rrule, tz  # noqa: F401
     import pandas as pd
     import matplotlib
     matplotlib.use("QtAgg")
 
     from PySide6.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QDoubleSpinBox,
-        QPushButton, QLabel, QTableView, QMessageBox, QSplitter, QFileDialog
+        QPushButton, QLabel, QTableView, QMessageBox, QSplitter, QFileDialog,
+        QDialog, QDialogButtonBox, QFormLayout
     )
     from PySide6.QtCore import Qt, QAbstractTableModel
+    from PySide6.QtGui import QValidator
     from matplotlib.backends.backend_qtagg import (
         FigureCanvasQTAgg as FigureCanvas,
         NavigationToolbar2QT as NavigationToolbar,
@@ -25,6 +30,27 @@ def launch_proc_viewer():
 
     from processrecord.container import ProcessRecord
     from processrecord import fileutils as fh
+
+    class _FlexibleFloatSpinBox(QDoubleSpinBox):
+        """Allow compact entry for very small values such as 1e-6."""
+        def validate(self, text, pos):
+            stripped = text.strip()
+            if stripped in {"", "-", "+", ".", "-.", "+."}:
+                return (QValidator.State.Intermediate, text, pos)
+            try:
+                float(stripped.replace("E", "e"))
+            except ValueError:
+                return (QValidator.State.Invalid, text, pos)
+            return (QValidator.State.Acceptable, text, pos)
+
+        def valueFromText(self, text):
+            try:
+                return float(text.replace("E", "e"))
+            except ValueError:
+                return 0.0
+
+        def textFromValue(self, value):
+            return f"{value:.12g}"
 
     class PandasModel(QAbstractTableModel):
         def __init__(self, df=pd.DataFrame(), parent=None):
@@ -72,9 +98,10 @@ def launch_proc_viewer():
             self.pathlength_spin.setDecimals(6); self.pathlength_spin.setValue(1.0)
             self._labeled(top_row, "Pathlength:", self.pathlength_spin)
 
-            self.conc_spin = QDoubleSpinBox()
+            self.conc_spin = _FlexibleFloatSpinBox()
             self.conc_spin.setRange(0, 1e12)
-            self.conc_spin.setDecimals(6)
+            self.conc_spin.setDecimals(12)
+            self.conc_spin.setSingleStep(1e-6)
             self.conc_spin.setValue(2.0)
             self._labeled(top_row, "Concentration:", self.conc_spin)
 
@@ -160,6 +187,74 @@ def launch_proc_viewer():
             v.addWidget(lab)
             v.addWidget(widget)
             return w
+
+        def _review_processing_inputs(
+            self,
+            metadata_values: dict,
+            metadata_path: str | None,
+            basename: str | None,
+        ):
+            initial_lims = str(metadata_values.get("lims_ID", self.lims_edit.text().strip() or basename or "test_lims"))
+            initial_pathlength = float(metadata_values.get("pathlength_cm", self.pathlength_spin.value()))
+            initial_concentration = float(metadata_values.get("concentration_MOL_L", self.conc_spin.value()))
+            initial_field = float(metadata_values.get("field_B", self.field_spin.value()))
+
+            if metadata_path is None:
+                return initial_lims, initial_concentration, initial_pathlength, initial_field
+
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Review Processing Inputs")
+            layout = QVBoxLayout(dlg)
+
+            info = QLabel(
+                "Loaded processing metadata from:\n"
+                f"{metadata_path}\n\n"
+                "Review or change these values before continuing."
+            )
+            info.setWordWrap(True)
+            layout.addWidget(info)
+
+            form = QFormLayout()
+            lims_edit = QLineEdit(initial_lims)
+            form.addRow("LimsID:", lims_edit)
+
+            pathlength_spin = QDoubleSpinBox()
+            pathlength_spin.setRange(0, 1e12)
+            pathlength_spin.setDecimals(6)
+            pathlength_spin.setValue(initial_pathlength)
+            form.addRow("Pathlength:", pathlength_spin)
+
+            conc_spin = _FlexibleFloatSpinBox()
+            conc_spin.setRange(0, 1e12)
+            conc_spin.setDecimals(12)
+            conc_spin.setSingleStep(1e-6)
+            conc_spin.setValue(initial_concentration)
+            form.addRow("Concentration:", conc_spin)
+
+            field_spin = QDoubleSpinBox()
+            field_spin.setRange(-1e12, 1e12)
+            field_spin.setDecimals(6)
+            field_spin.setValue(initial_field)
+            form.addRow("Field:", field_spin)
+
+            layout.addLayout(form)
+
+            buttons = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
+            buttons.accepted.connect(dlg.accept)
+            buttons.rejected.connect(dlg.reject)
+            layout.addWidget(buttons)
+
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return None
+
+            return (
+                lims_edit.text().strip() or basename or "test_lims",
+                float(conc_spin.value()),
+                float(pathlength_spin.value()),
+                float(field_spin.value()),
+            )
 
         """
         clears and updates canvas in holder_layout
@@ -267,12 +362,19 @@ def launch_proc_viewer():
         The main processing pipeline is called at the end of this function.
         """
         def load_normal(self):
-            lims = self.lims_edit.text().strip() or "test_lims"
-            pathlength = float(self.pathlength_spin.value())
-            concentration = float(self.conc_spin.value())
-            field = float(self.field_spin.value())
+            pos_df, neg_df, abs_df, sticks_df, basename, metadata_values, metadata_path = fh.read_pos_neg_abs()
+            if pos_df is None or neg_df is None or abs_df is None:
+                return
 
-            pos_df, neg_df, abs_df, sticks_df, basename = fh.read_pos_neg_abs()
+            reviewed = self._review_processing_inputs(metadata_values, metadata_path, basename)
+            if reviewed is None:
+                return
+
+            lims, concentration, pathlength, field = reviewed
+            self.lims_edit.setText(lims)
+            self.pathlength_spin.setValue(pathlength)
+            self.conc_spin.setValue(concentration)
+            self.field_spin.setValue(field)
 
             # 5) Build tuple and create ProcessRecord (note arg order conc, pathlength)
             input_tuple = (pos_df, neg_df, abs_df, sticks_df, basename)

@@ -1,5 +1,6 @@
 import multiprocessing as mp
 import os
+from importlib.util import find_spec
 from pathlib import Path
 
 import bruteFit.utils as utils
@@ -12,12 +13,11 @@ def configure_runtime():
     mplconfig_dir.mkdir(exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", str(mplconfig_dir))
 
-    try:
-        import PySide6
-    except ImportError:
+    pyside_spec = find_spec("PySide6")
+    if pyside_spec is None or pyside_spec.origin is None:
         return
 
-    plugin_root = Path(PySide6.__file__).resolve().parent / "Qt" / "plugins"
+    plugin_root = Path(pyside_spec.origin).resolve().parent / "Qt" / "plugins"
     platforms_dir = plugin_root / "platforms"
 
     os.environ["QT_PLUGIN_PATH"] = str(plugin_root)
